@@ -77,7 +77,7 @@ jobs:
           path: meta-openxr-sdk
           fetch-depth: 1
 
-      - name: Brand v0.1.1 quality APK safely
+      - name: Brand v0.1.2 filtered-depth APK safely
         shell: bash
         run: |
           set -euo pipefail
@@ -87,14 +87,14 @@ jobs:
           # package, visible label and version are changed. This avoids
           # breaking Activity/JNI links in the reference sample.
           sed -i 's/applicationId "com\.oculus\.xrpassthroughocclusion"/applicationId "com.bvultrex.quest3mrmodelviewer"/' "$ROOT/build.gradle"
-          sed -i 's/versionName "1\.0"/versionName "0.1.1"/' "$ROOT/build.gradle"
+          sed -i 's/versionName "1\.0"/versionName "0.1.2"/' "$ROOT/build.gradle"
           sed -i 's/android:label="xrpassthroughocclusion"/android:label="Quest3 MR Model Viewer"/' "$ROOT/AndroidManifest.xml"
 
           echo '--- Branding check ---'
           grep -nE 'applicationId|versionName' "$ROOT/build.gradle"
           grep -n 'android:label' "$ROOT/AndroidManifest.xml"
 
-      - name: Apply v0.1.1 edge smoothing quality pass
+      - name: Apply v0.1.2 filtered Environment Depth quality pass
         shell: bash
         run: |
           set -euo pipefail
@@ -115,25 +115,69 @@ jobs:
               re.S,
           )
 
-          soft_occlusion = "\n".join([
-              "// Quest3 MR Model Viewer v0.1.1 quality pass",
-              "// Positive delta means the virtual fragment is in front of the real scene.",
-              "highp float depthDelta = depthViewEyeZ - cubeDepth;",
+          filtered_occlusion = "\n".join([
+              "// Quest3 MR Model Viewer v0.1.2 filtered Environment Depth pass",
+              "// Estimate fractional occlusion coverage from a 3x3 neighbourhood instead of",
+              "// trusting a single low-resolution Environment Depth texel.",
+              "highp ivec3 depthTextureSize3 = textureSize(EnvironmentDepthTexture, 0);",
+              "highp vec2 depthTexel = 1.0f / vec2(depthTextureSize3.xy);",
               "",
-              "// Bias slightly toward real-world occlusion to reduce virtual leaks around",
-              "// hands, furniture and depth discontinuities.",
-              "const highp float kOcclusionBias = 0.00035f;",
-              "depthDelta -= kOcclusionBias;",
+              "// clip.w is a useful distance hint in this perspective projection. Increase",
+              "// the conservative bias slightly with distance, where one depth texel covers",
+              "// more world-space area.",
+              "highp float distanceHint = max(abs(cubeDepthCameraPosition.w), 0.25f);",
+              "highp float projectedBias = clamp(0.00022f + distanceHint * 0.00016f, 0.00022f, 0.00120f);",
               "",
-              "// Screen-space derivatives produce a narrow adaptive feather at the edge.",
-              "highp float edgeWidth = clamp(fwidth(depthDelta) * 1.75f, 0.00045f, 0.0035f);",
-              "highp float visibility = smoothstep(-edgeWidth, edgeWidth, depthDelta);",
+              "// Sub-pixel depth-space feather for quantisation and reprojection jitter.",
+              "highp float derivativeWidth = clamp(fwidth(cubeDepth) * 1.35f, 0.00030f, 0.00250f);",
               "",
+              "highp float visibilitySum = 0.0f;",
+              "highp float weightSum = 0.0f;",
+              "",
+              "for (int y = -1; y <= 1; ++y) {",
+              "    for (int x = -1; x <= 1; ++x) {",
+              "        highp vec2 tapUv = clamp(",
+              "            cubeDepthCameraPositionHC + vec2(float(x), float(y)) * depthTexel,",
+              "            vec2(0.0f),",
+              "            vec2(1.0f));",
+              "",
+              "        highp float realDepth = texture(",
+              "            EnvironmentDepthTexture,",
+              "            vec3(tapUv, float(VIEW_ID))).r;",
+              "",
+              "        // Gaussian kernel: 1 2 1 / 2 4 2 / 1 2 1, total 16.",
+              "        highp float wx = (x == 0) ? 2.0f : 1.0f;",
+              "        highp float wy = (y == 0) ? 2.0f : 1.0f;",
+              "        highp float weight = wx * wy;",
+              "",
+              "        // Positive delta means virtual geometry is in front of the real sample.",
+              "        // Bias toward the real world to reduce virtual leaks at depth edges.",
+              "        highp float depthDelta = realDepth - cubeDepth - projectedBias;",
+              "",
+              "        // Expand the feather only around depth discontinuities, where the raw",
+              "        // mask is most likely to show stair-stepping or temporal shimmer.",
+              "        highp float discontinuity = abs(realDepth - depthViewEyeZ);",
+              "        highp float tapWidth = clamp(",
+              "            derivativeWidth + discontinuity * 0.12f,",
+              "            0.00040f,",
+              "            0.00450f);",
+              "",
+              "        highp float tapVisibility = smoothstep(-tapWidth, tapWidth, depthDelta);",
+              "        visibilitySum += tapVisibility * weight;",
+              "        weightSum += weight;",
+              "    }",
+              "}",
+              "",
+              "highp float visibility = clamp(visibilitySum / max(weightSum, 0.0001f), 0.0f, 1.0f);",
+              "",
+              "// Tighten the transition to avoid a broad translucent halo while preserving",
+              "// fractional edge coverage.",
+              "visibility = smoothstep(0.08f, 0.92f, visibility);",
               "outColor = vec4(fragmentColor.rgb, fragmentColor.a * visibility);",
               "",
           ])
 
-          text, count = hard_occlusion.subn(soft_occlusion, text, count=1)
+          text, count = hard_occlusion.subn(filtered_occlusion, text, count=1)
           if count != 1:
               raise SystemExit(f'Expected one hard occlusion block, patched {count}')
 
@@ -152,7 +196,7 @@ jobs:
               "    const int qualitySamples = (maxSamples >= 4) ? 4 : ((maxSamples >= 2) ? 2 : 1);",
               "    const int selectedSamples = glExtensions.multi_view ? qualitySamples : 1;",
               "    ALOGV(",
-              "        \"Quest3 MR quality pass: %dx MSAA selected (runtime requested %d, GL max %d)\",",
+              "        \"Quest3 MR v0.1.2: %dx MSAA selected (runtime requested %d, GL max %d)\",",
               "        selectedSamples,",
               "        numMultiSamples,",
               "        maxSamples);",
@@ -165,16 +209,35 @@ jobs:
           if count != 1:
               raise SystemExit(f'Expected one AppRenderer::Create block, patched {count}')
 
+          render_state = re.compile(
+              r"GL\(glDisable\(GL_BLEND\)\);\s*"
+              r"GL\(glBlendFunc\(GL_SRC_ALPHA,\s*GL_ONE_MINUS_SRC_ALPHA\)\);",
+              re.S,
+          )
+          coverage_state = "\n".join([
+              "GL(glDisable(GL_BLEND));",
+              "    GL(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));",
+              "    GL(glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE));",
+          ])
+          text, count = render_state.subn(coverage_state, text, count=1)
+          if count != 1:
+              raise SystemExit(f'Expected one RenderScene blend state block, patched {count}')
+
           source_path.write_text(text)
-          print('Soft Environment Depth feather: ON')
+          print('3x3 Gaussian Environment Depth coverage: ON')
+          print('Distance-adaptive conservative bias: ON')
+          print('Discontinuity-aware feather: ON')
+          print('MSAA alpha-to-coverage: ON')
           print('MSAA preference: 4x -> 2x -> 1x fallback')
           PY
 
           SRC='meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp'
           echo '--- Patch verification ---'
-          grep -n 'Quest3 MR Model Viewer v0.1.1 quality pass' "$SRC"
+          grep -n 'v0.1.2 filtered Environment Depth pass' "$SRC"
+          grep -n 'visibilitySum' "$SRC"
+          grep -n 'projectedBias' "$SRC"
+          grep -n 'GL_SAMPLE_ALPHA_TO_COVERAGE' "$SRC"
           grep -n 'qualitySamples' "$SRC"
-          grep -n 'smoothstep' "$SRC"
 
       - name: Build debug APK
         working-directory: meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android
@@ -198,7 +261,7 @@ jobs:
             exit 1
           fi
 
-          OUT='dist/Quest3-MR-ModelViewer-v0.1.1-debug.apk'
+          OUT='dist/Quest3-MR-ModelViewer-v0.1.2-debug.apk'
           cp "$APK" "$OUT"
 
           echo '--- APK signature ---'
@@ -210,15 +273,15 @@ jobs:
           grep -q "package: name='com.bvultrex.quest3mrmodelviewer'" dist/APK-BADGING.txt
           grep -Fq "application: label='Quest3 MR Model Viewer'" dist/APK-BADGING.txt
 
-          (cd dist && sha256sum Quest3-MR-ModelViewer-v0.1.1-debug.apk > SHA256SUMS.txt)
+          (cd dist && sha256sum Quest3-MR-ModelViewer-v0.1.2-debug.apk > SHA256SUMS.txt)
           ls -lh dist
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v6
         with:
-          name: Quest3-MR-ModelViewer-v0.1.1
+          name: Quest3-MR-ModelViewer-v0.1.2
           path: |
-            dist/Quest3-MR-ModelViewer-v0.1.1-debug.apk
+            dist/Quest3-MR-ModelViewer-v0.1.2-debug.apk
             dist/SHA256SUMS.txt
             dist/APK-BADGING.txt
           if-no-files-found: error
