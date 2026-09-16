@@ -39,8 +39,14 @@ jobs:
       - name: Install Android SDK, NDK and CMake
         shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager \
+          # GitHub's bash shell uses pipefail. `yes` can receive SIGPIPE once
+          # sdkmanager exits, so license acceptance is intentionally allowed
+          # to finish with a non-zero pipeline status here.
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+
+          # Some packages can still surface their own license prompt during
+          # installation. Feed `y` to the install command as well.
+          yes | sdkmanager \
             'platform-tools' \
             'platforms;android-32' \
             'build-tools;34.0.0' \
