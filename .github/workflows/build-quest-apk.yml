@@ -25,36 +25,52 @@ jobs:
 
     steps:
       - name: Checkout project
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up Android command-line tools
+        uses: android-actions/setup-android@v4
+        with:
+          # The action's default is "tools platform-tools". The legacy
+          # "tools" package no longer exists, so install no packages here.
+          # We install exactly what the Meta sample needs in the next step.
+          packages: ''
+          log-accepted-android-sdk-licenses: false
 
       - name: Install Android SDK, NDK and CMake
         shell: bash
         run: |
-          # GitHub's bash shell uses pipefail. `yes` can receive SIGPIPE once
-          # sdkmanager exits, so license acceptance is intentionally allowed
-          # to finish with a non-zero pipeline status here.
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          set -e
 
-          # Some packages can still surface their own license prompt during
-          # installation. Feed `y` to the install command as well.
-          yes | sdkmanager \
+          # GitHub invokes bash with pipefail. Disable it around `yes | ...`
+          # so a normal SIGPIPE from `yes` after sdkmanager exits does not
+          # falsely fail the step. sdkmanager remains the pipeline exit code.
+          set +o pipefail
+
+          yes | sdkmanager --licenses >/dev/null
+
+          yes | sdkmanager --install \
             'platform-tools' \
             'platforms;android-32' \
             'build-tools;34.0.0' \
             'ndk;27.0.12077973' \
             'cmake;3.22.1'
 
+          set -o pipefail
+
+          echo '--- Installed tool versions ---'
+          sdkmanager --version
+          java -version
+          "$ANDROID_HOME/ndk/27.0.12077973/ndk-build" --version || true
+          "$ANDROID_HOME/cmake/3.22.1/bin/cmake" --version
+
       - name: Checkout Meta OpenXR SDK v85
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: meta-quest/Meta-OpenXR-SDK
           ref: v85
@@ -64,14 +80,17 @@ jobs:
       - name: Brand v0.1 bring-up APK safely
         shell: bash
         run: |
+          set -euo pipefail
           ROOT='meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android'
 
-          # Keep Meta's Java package / namespace untouched. Only the install package,
-          # visible label and version are changed. This avoids breaking Activity/JNI links.
+          # Keep Meta's Java package / namespace untouched. Only the install
+          # package, visible label and version are changed. This avoids
+          # breaking Activity/JNI links in the reference sample.
           sed -i 's/applicationId "com\.oculus\.xrpassthroughocclusion"/applicationId "com.bvultrex.quest3mrmodelviewer"/' "$ROOT/build.gradle"
           sed -i 's/versionName "1\.0"/versionName "0.1.0"/' "$ROOT/build.gradle"
           sed -i 's/android:label="xrpassthroughocclusion"/android:label="Quest3 MR Model Viewer"/' "$ROOT/AndroidManifest.xml"
 
+          echo '--- Branding check ---'
           grep -nE 'applicationId|versionName' "$ROOT/build.gradle"
           grep -n 'android:label' "$ROOT/AndroidManifest.xml"
 
@@ -113,7 +132,7 @@ jobs:
           ls -lh dist
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Quest3-MR-ModelViewer-v0.1
           path: |
