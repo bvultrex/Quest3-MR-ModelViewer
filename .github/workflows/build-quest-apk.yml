@@ -1,0 +1,118 @@
+name: Build Quest APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-quest-apk.yml'
+      - 'PROJECT_STATE.md'
+      - 'AUDIT.md'
+      - 'HANDOFF.md'
+      - 'README.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quest-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK, NDK and CMake
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            'platform-tools' \
+            'platforms;android-32' \
+            'build-tools;34.0.0' \
+            'ndk;27.0.12077973' \
+            'cmake;3.22.1'
+
+      - name: Checkout Meta OpenXR SDK v85
+        uses: actions/checkout@v4
+        with:
+          repository: meta-quest/Meta-OpenXR-SDK
+          ref: v85
+          path: meta-openxr-sdk
+          fetch-depth: 1
+
+      - name: Brand v0.1 bring-up APK safely
+        shell: bash
+        run: |
+          ROOT='meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android'
+
+          # Keep Meta's Java package / namespace untouched. Only the install package,
+          # visible label and version are changed. This avoids breaking Activity/JNI links.
+          sed -i 's/applicationId "com\.oculus\.xrpassthroughocclusion"/applicationId "com.bvultrex.quest3mrmodelviewer"/' "$ROOT/build.gradle"
+          sed -i 's/versionName "1\.0"/versionName "0.1.0"/' "$ROOT/build.gradle"
+          sed -i 's/android:label="xrpassthroughocclusion"/android:label="Quest3 MR Model Viewer"/' "$ROOT/AndroidManifest.xml"
+
+          grep -nE 'applicationId|versionName' "$ROOT/build.gradle"
+          grep -n 'android:label' "$ROOT/AndroidManifest.xml"
+
+      - name: Build debug APK
+        working-directory: meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android
+        env:
+          GRADLE_OPTS: -Dorg.gradle.daemon=false
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace --no-daemon
+
+      - name: Collect and verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ROOT='meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android'
+          APK=$(find "$ROOT" -type f -path '*/build/outputs/apk/*' -name '*debug.apk' | head -n 1)
+
+          if [ -z "${APK:-}" ]; then
+            echo 'No debug APK found' >&2
+            find "$ROOT" -maxdepth 8 -type f | sort | tail -n 200
+            exit 1
+          fi
+
+          OUT='dist/Quest3-MR-ModelViewer-v0.1-debug.apk'
+          cp "$APK" "$OUT"
+
+          echo '--- APK signature ---'
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$OUT"
+
+          echo '--- APK package / launch metadata ---'
+          "$ANDROID_HOME/build-tools/34.0.0/aapt2" dump badging "$OUT" | tee dist/APK-BADGING.txt
+
+          grep -q "package: name='com.bvultrex.quest3mrmodelviewer'" dist/APK-BADGING.txt
+          grep -q "application-label:'Quest3 MR Model Viewer'" dist/APK-BADGING.txt
+
+          (cd dist && sha256sum Quest3-MR-ModelViewer-v0.1-debug.apk > SHA256SUMS.txt)
+          ls -lh dist
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Quest3-MR-ModelViewer-v0.1
+          path: |
+            dist/Quest3-MR-ModelViewer-v0.1-debug.apk
+            dist/SHA256SUMS.txt
+            dist/APK-BADGING.txt
+          if-no-files-found: error
+          retention-days: 30
