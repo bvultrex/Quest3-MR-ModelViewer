@@ -77,7 +77,7 @@ jobs:
           path: meta-openxr-sdk
           fetch-depth: 1
 
-      - name: Brand v0.1 bring-up APK safely
+      - name: Brand v0.1.1 quality APK safely
         shell: bash
         run: |
           set -euo pipefail
@@ -87,12 +87,94 @@ jobs:
           # package, visible label and version are changed. This avoids
           # breaking Activity/JNI links in the reference sample.
           sed -i 's/applicationId "com\.oculus\.xrpassthroughocclusion"/applicationId "com.bvultrex.quest3mrmodelviewer"/' "$ROOT/build.gradle"
-          sed -i 's/versionName "1\.0"/versionName "0.1.0"/' "$ROOT/build.gradle"
+          sed -i 's/versionName "1\.0"/versionName "0.1.1"/' "$ROOT/build.gradle"
           sed -i 's/android:label="xrpassthroughocclusion"/android:label="Quest3 MR Model Viewer"/' "$ROOT/AndroidManifest.xml"
 
           echo '--- Branding check ---'
           grep -nE 'applicationId|versionName' "$ROOT/build.gradle"
           grep -n 'android:label' "$ROOT/AndroidManifest.xml"
+
+      - name: Apply v0.1.1 edge smoothing quality pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          source_path = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+          text = source_path.read_text()
+
+          hard_occlusion = re.compile(
+              r"outColor\s*=\s*fragmentColor;\s*"
+              r"if\s*\(cubeDepth\s*<\s*depthViewEyeZ\)\s*\{\s*"
+              r"outColor\.a\s*=\s*1\.0f;[^\n]*\s*"
+              r"\}\s*else\s*\{\s*"
+              r"outColor\s*=\s*vec4\(0\.0f,\s*0\.0f,\s*0\.0f,\s*0\.0f\);[^\n]*\s*"
+              r"\}\s*",
+              re.S,
+          )
+
+          soft_occlusion = "\n".join([
+              "// Quest3 MR Model Viewer v0.1.1 quality pass",
+              "// Positive delta means the virtual fragment is in front of the real scene.",
+              "highp float depthDelta = depthViewEyeZ - cubeDepth;",
+              "",
+              "// Bias slightly toward real-world occlusion to reduce virtual leaks around",
+              "// hands, furniture and depth discontinuities.",
+              "const highp float kOcclusionBias = 0.00035f;",
+              "depthDelta -= kOcclusionBias;",
+              "",
+              "// Screen-space derivatives produce a narrow adaptive feather at the edge.",
+              "highp float edgeWidth = clamp(fwidth(depthDelta) * 1.75f, 0.00045f, 0.0035f);",
+              "highp float visibility = smoothstep(-edgeWidth, edgeWidth, depthDelta);",
+              "",
+              "outColor = vec4(fragmentColor.rgb, fragmentColor.a * visibility);",
+              "",
+          ])
+
+          text, count = hard_occlusion.subn(soft_occlusion, text, count=1)
+          if count != 1:
+              raise SystemExit(f'Expected one hard occlusion block, patched {count}')
+
+          renderer_create = re.compile(
+              r"EglInitExtensions\(\);\s*"
+              r"if\s*\(!framebuffer\.Create\(\s*"
+              r"format,\s*width,\s*height,\s*numMultiSamples,\s*swapChainLength,\s*colorTextures\)\)\s*\{",
+              re.S,
+          )
+
+          msaa_block = "\n".join([
+              "EglInitExtensions();",
+              "",
+              "    GLint maxSamples = 1;",
+              "    GL(glGetIntegerv(GL_MAX_SAMPLES, &maxSamples));",
+              "    const int qualitySamples = (maxSamples >= 4) ? 4 : ((maxSamples >= 2) ? 2 : 1);",
+              "    const int selectedSamples = glExtensions.multi_view ? qualitySamples : 1;",
+              "    ALOGV(",
+              "        \"Quest3 MR quality pass: %dx MSAA selected (runtime requested %d, GL max %d)\",",
+              "        selectedSamples,",
+              "        numMultiSamples,",
+              "        maxSamples);",
+              "",
+              "    if (!framebuffer.Create(",
+              "            format, width, height, selectedSamples, swapChainLength, colorTextures)) {",
+          ])
+
+          text, count = renderer_create.subn(msaa_block, text, count=1)
+          if count != 1:
+              raise SystemExit(f'Expected one AppRenderer::Create block, patched {count}')
+
+          source_path.write_text(text)
+          print('Soft Environment Depth feather: ON')
+          print('MSAA preference: 4x -> 2x -> 1x fallback')
+          PY
+
+          SRC='meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp'
+          echo '--- Patch verification ---'
+          grep -n 'Quest3 MR Model Viewer v0.1.1 quality pass' "$SRC"
+          grep -n 'qualitySamples' "$SRC"
+          grep -n 'smoothstep' "$SRC"
 
       - name: Build debug APK
         working-directory: meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android
@@ -116,7 +198,7 @@ jobs:
             exit 1
           fi
 
-          OUT='dist/Quest3-MR-ModelViewer-v0.1-debug.apk'
+          OUT='dist/Quest3-MR-ModelViewer-v0.1.1-debug.apk'
           cp "$APK" "$OUT"
 
           echo '--- APK signature ---'
@@ -128,15 +210,15 @@ jobs:
           grep -q "package: name='com.bvultrex.quest3mrmodelviewer'" dist/APK-BADGING.txt
           grep -Fq "application: label='Quest3 MR Model Viewer'" dist/APK-BADGING.txt
 
-          (cd dist && sha256sum Quest3-MR-ModelViewer-v0.1-debug.apk > SHA256SUMS.txt)
+          (cd dist && sha256sum Quest3-MR-ModelViewer-v0.1.1-debug.apk > SHA256SUMS.txt)
           ls -lh dist
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v6
         with:
-          name: Quest3-MR-ModelViewer-v0.1
+          name: Quest3-MR-ModelViewer-v0.1.1
           path: |
-            dist/Quest3-MR-ModelViewer-v0.1-debug.apk
+            dist/Quest3-MR-ModelViewer-v0.1.1-debug.apk
             dist/SHA256SUMS.txt
             dist/APK-BADGING.txt
           if-no-files-found: error
