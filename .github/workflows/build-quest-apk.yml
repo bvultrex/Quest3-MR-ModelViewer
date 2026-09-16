@@ -126,7 +126,7 @@ jobs:
           "$ANDROID_HOME/build-tools/34.0.0/aapt2" dump badging "$OUT" | tee dist/APK-BADGING.txt
 
           grep -q "package: name='com.bvultrex.quest3mrmodelviewer'" dist/APK-BADGING.txt
-          grep -q "application-label:'Quest3 MR Model Viewer'" dist/APK-BADGING.txt
+          grep -Fq "application: label='Quest3 MR Model Viewer'" dist/APK-BADGING.txt
 
           (cd dist && sha256sum Quest3-MR-ModelViewer-v0.1-debug.apk > SHA256SUMS.txt)
           ls -lh dist
