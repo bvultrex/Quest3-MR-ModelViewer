@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '0.2.2'
+  APP_VERSION: '0.2.3'
   APP_ID: 'com.bvultrex.questdepthbrowser.native'
   APP_LABEL: 'Quest Depth Browser Native'
 
@@ -63,6 +63,8 @@ jobs:
           cat QuestDepthBrowserNative/v022/parts/patch_v022.*.pyfrag > /tmp/patch_v022.py
           python3 -m py_compile /tmp/patch_v022.py
           python3 /tmp/patch_v022.py
+          python3 -m py_compile QuestDepthBrowserNative/v023/patch_v023.py
+          python3 QuestDepthBrowserNative/v023/patch_v023.py
 
           ROOT=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion
           SRC="$ROOT/Src/XrPassthroughOcclusion.cpp"
@@ -76,9 +78,11 @@ jobs:
           grep -n 'browserGripAction' "$INPUT"
           grep -n 'browserThumbstickAction' "$INPUT"
           grep -n 'uPanelCenter' "$NATIVE"
-          grep -n 'resizeGesture' "$NATIVE"
-          grep -n 'scaleFactor' "$NATIVE"
-          grep -n 'public static void pointer' "$JAVA"
+          grep -n 'uBrowserContentRect' "$NATIVE"
+          grep -n 'resizeCorner' "$NATIVE"
+          grep -n 'setWindowAspect' "$JAVA"
+          grep -n 'Adressleiste einklappen' "$JAVA"
+          grep -n 'Native-Quest-style resize affordances' "$JAVA"
           grep -n 'DE QWERTZ' "$JAVA"
           grep -n 'Theme_Material_Light_NoActionBar_Fullscreen' "$JAVA"
           grep -n 'createBrowserUi(presentation.getContext())' "$JAVA"
