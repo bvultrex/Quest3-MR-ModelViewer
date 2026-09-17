@@ -1,0 +1,48 @@
+
+# ---------------------------------------------------------------------------
+# v0.1.4: sharpen the depth-compatible Mesh panel at the texture sampling
+# stage instead of spending more GPU on eye-buffer supersampling.
+# ---------------------------------------------------------------------------
+gradle = APP / 'build.gradle.kts'
+text = gradle.read_text()
+text = text.replace('versionCode = 4', 'versionCode = 5', 1)
+text = text.replace('versionName = "0.1.3"', 'versionName = "0.1.4"', 1)
+gradle.write_text(text)
+
+activity_text = activity.read_text()
+
+if 'import com.meta.spatial.runtime.SamplerConfig\n' not in activity_text:
+    activity_text = activity_text.replace(
+        'import com.meta.spatial.runtime.RenderConfiguration\n',
+        'import com.meta.spatial.runtime.RenderConfiguration\n'
+        'import com.meta.spatial.runtime.SamplerConfig\n',
+        1,
+    )
+
+registration_anchor = '''            panelSetupWithRootView = { rootView, _, _ -> configureBrowser(rootView) },
+        ),
+'''
+registration_replacement = '''            panelSetupWithRootView = { rootView, _, _ -> configureBrowser(rootView) },
+        ).also { registration ->
+          registration.config {
+            // Browser text looked almost unchanged when the whole eye buffer was raised
+            // from 100% to 150%. Keep the proven depth-compatible Mesh path, but stop
+            // the UI texture from being softened by lower mip levels. The negative LOD
+            // bias also asks the sampler to favor the sharper source level where possible.
+            mips = 1
+            samplerConfig = SamplerConfig(lodBias = -1.0f)
+          }
+        },
+'''
+if registration_anchor not in activity_text:
+    raise SystemExit('v0.1.4 panel registration anchor not found')
+activity_text = activity_text.replace(registration_anchor, registration_replacement, 1)
+
+activity.write_text(activity_text)
+
+print('Quest Depth Browser v0.1.4 sharp mesh patch applied')
+print('render path: Mesh')
+print('render scale: 1.5x')
+print('panel mips: 1')
+print('panel sampler LOD bias: -1.0')
+print('environment depth: OCCLUSION')
