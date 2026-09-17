@@ -1,0 +1,100 @@
+
+# ---------------------------------------------------------------------------
+# v0.1.3: keep the depth-compatible mesh path, raise the app eye-buffer render
+# scale to 150% and remove the compositor-layer/hole-punch experiment.
+# ---------------------------------------------------------------------------
+gradle = APP / 'build.gradle.kts'
+text = gradle.read_text()
+text = text.replace('versionCode = 3', 'versionCode = 4', 1)
+text = text.replace('versionName = "0.1.2"', 'versionName = "0.1.3"', 1)
+gradle.write_text(text)
+
+activity_text = activity.read_text()
+
+# Spatial SDK 0.14 exposes app-wide eye-buffer supersampling via
+# AppSystemActivity.renderConfiguration().
+if 'import com.meta.spatial.runtime.RenderConfiguration\n' not in activity_text:
+    activity_text = activity_text.replace(
+        'import com.meta.spatial.runtime.ReferenceSpace\n',
+        'import com.meta.spatial.runtime.ReferenceSpace\n'
+        'import com.meta.spatial.runtime.RenderConfiguration\n',
+        1,
+    )
+
+activity_text = activity_text.replace(
+    '  override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))\n',
+    '  override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))\n\n'
+    '  // v0.1.3: render the 3D scene at 150% of the default recommended size.\n'
+    '  // On Quest 3 this is roughly 2520x2640 per eye instead of 1680x1760.\n'
+    '  override fun renderConfiguration(): RenderConfiguration = RenderConfiguration(1.5f)\n',
+    1,
+)
+
+activity_text = activity_text.replace(
+    'rendering = UIPanelRenderOptions(renderMode = PanelRenderMode.Layer()),',
+    'rendering = UIPanelRenderOptions(renderMode = PanelRenderMode.Mesh()),',
+    1,
+)
+
+# Remove the v0.1.2 hole-punch registration wrapper and return to the plain
+# LayoutXMLPanelRegistration that v0.1 hardware proved is depth-occludable.
+hole_punch_block = '''            panelSetupWithRootView = { rootView, _, _ -> configureBrowser(rootView) },
+        ).also { registration ->
+          registration.config {
+            // Keep the crisp compositor layer but also create a scene texture/mesh.
+            // The mesh uses Meta's dedicated hole-punch shader. When a real surface
+            // is closer than the panel, Environment Depth occludes this mesh and the
+            // compositor layer can no longer punch through at that pixel.
+            layerConfig = LayerConfig()
+            forceSceneTexture = true
+            panelShader = SceneMaterial.HOLE_PUNCH_PANEL_SHADER
+            alphaMode = AlphaMode.HOLE_PUNCH
+            includeGlass = false
+          }
+        },
+'''
+plain_registration = '''            panelSetupWithRootView = { rootView, _, _ -> configureBrowser(rootView) },
+        ),
+'''
+if hole_punch_block not in activity_text:
+    raise SystemExit('v0.1.3 hole-punch block not found')
+activity_text = activity_text.replace(hole_punch_block, plain_registration, 1)
+
+hole_punch_scene = '''    // Render poseable compositor layers before the 3D scene. The matching
+    // scene mesh below then punches the layer through the scene. Environment
+    // Depth can occlude that mesh, so real geometry remains in front.
+    scene.enableHolePunching(true)
+'''
+activity_text = activity_text.replace(hole_punch_scene, '', 1)
+
+# Keep the imports harmlessly minimal after removing the hole-punch path.
+activity_text = activity_text.replace('import com.meta.spatial.runtime.AlphaMode\n', '', 1)
+activity_text = activity_text.replace('import com.meta.spatial.runtime.LayerConfig\n', '', 1)
+activity_text = activity_text.replace('import com.meta.spatial.runtime.SceneMaterial\n', '', 1)
+
+# Update stale comments from the v0.1.1 layer experiment.
+activity_text = activity_text.replace(
+    '''                  // v0.1.1 keeps that healthy source resolution and removes the real quality
+                  // bottleneck: Mesh mode resampling through the application's eye buffer.
+''',
+    '''                  // The source texture is already comfortably above the projected eye-buffer
+                  // footprint. v0.1.3 improves clarity by supersampling the 3D render target instead.
+''',
+    1,
+)
+activity_text = activity_text.replace(
+    '''                  // Compositor Layer mode is Meta's recommended path for crisp text and UI.
+                  // Hardware test target: verify Environment Depth still occludes the layer.
+''',
+    '''                  // Mesh mode is required here because current hardware testing showed that
+                  // compositor layers bypass Environment Depth occlusion.
+''',
+    1,
+)
+
+activity.write_text(activity_text)
+
+print('Quest Depth Browser v0.1.3 HQ depth mesh patch applied')
+print('render path: Mesh')
+print('render scale: 1.5x')
+print('environment depth: OCCLUSION')
