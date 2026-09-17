@@ -1,19 +1,23 @@
-Quest Depth Browser Native v0.2.2
+Quest Depth Browser Native v0.2.3
 
 Expected behavior:
 - Passthrough room visible.
 - Browser image remains compositor-sharp.
 - Environment Depth still occludes the browser behind real objects.
-- The browser VirtualDisplay now uses a fullscreen/no-title display-aware Presentation to avoid cropping and density mismatches.
-- Initial panel width is 1.00 m; height follows the actual browser texture aspect ratio.
+- Default browser window is now 16:9 and Chromium reflows when the window aspect ratio changes.
+- The 3200x2000 backing texture remains fixed for sharpness, while a dynamic active browser viewport is sampled into the spatial window.
+- Four subtle resize corners are visible on the browser window.
+- The URL/navigation bar stays pinned to the top edge and can be collapsed with ^. A small down-chevron restores it.
 
 Controls:
 - Right controller aim: point at the browser.
 - Right Trigger: click/tap inside Chromium.
-- Right Grip: grab and move the browser panel.
-- Right Grip + Trigger: resize mode. Move the controller up to enlarge and down to shrink.
-- Right Grip + right thumbstick up/down: secondary resize fallback.
+- Right Grip on the browser body: grab and move the whole browser window.
+- Right Grip on any visible corner: drag that corner to resize width and height independently. The opposite corner remains anchored.
+- Joystick scaling is no longer used for window size.
 - Address bar: click, then type with a physical keyboard.
 - DE-QWERTZ remap remains enabled for the MX Keys path, including Y/Z and common German special characters.
+- ^ in the top-right of the toolbar: collapse the sticky URL/navigation bar.
+- Small down-chevron at the top center: restore the URL/navigation bar.
 
-The sharp per-eye compositor quads and Environment Depth alpha-mask render path are unchanged from v0.2.0/v0.2.1.
+The sharp per-eye compositor quads and Environment Depth alpha-mask render path remain unchanged from the validated native compositor core.
