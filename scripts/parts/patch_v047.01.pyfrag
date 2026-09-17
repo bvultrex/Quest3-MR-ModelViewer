@@ -97,8 +97,8 @@ void QuestMrReleaseUiTextMesh(QuestMrUiTextMesh& mesh) {
 }
 
 void QuestMrInvalidateAllUiTextMeshes() {
-    // No GL deletion here: this is called at Scene::Create specifically to
-    // invalidate handles that may belong to a previous EGL context.
+    // No GL deletion here: Scene::Create can run with a new EGL context, where
+    // old numeric object names could already refer to unrelated new objects.
     gQuestMrUiTextMesh = QuestMrUiTextMesh{};
     for (auto& mesh : gQuestMrImportStatusMeshes) {
         mesh = QuestMrUiTextMesh{};
@@ -126,13 +126,13 @@ if status_tail not in text:
 text = text.replace(status_tail, replacement, 1)
 
 old_create = '''void Scene::Create() {\n    // Setup the scene matrices.'''
-new_create = '''void Scene::Create() {\n    // v1.0.1: never trust static GL object names across an EGL/scene restart.\n    QuestMrInvalidateAllUiTextMeshes();\n\n    // Setup the scene matrices.'''
+new_create = '''void Scene::Create() {\n    // v1.0.1: never trust static GL object names across an EGL/scene restart.\n    QuestMrInvalidateAllUiTextMeshes();\n    const long long previousImportedStamp = gQuestMrImportedMesh.loadedStamp;\n    gQuestMrImportedMesh = QuestMrImportedMesh{};\n    gQuestMrImportedMesh.loadedStamp = previousImportedStamp;\n    gQuestMrImportState = 0;\n\n    // Setup the scene matrices.'''
 if old_create not in text:
     raise SystemExit('v1.0.1 Scene::Create lifecycle anchor not found')
 text = text.replace(old_create, new_create, 1)
 
-old_destroy = '''    BoxDepthSpaceOcclusionProgram.Destroy();\n    Box.Destroy();\n    QuestMrDestroyImportedMesh();\n\n    CreatedScene = false;'''
-new_destroy = '''    BoxDepthSpaceOcclusionProgram.Destroy();\n    QuestMrDestroyAllUiTextMeshes();\n    Box.Destroy();\n    QuestMrDestroyImportedMesh();\n\n    CreatedScene = false;'''
+old_destroy = '''void Scene::Destroy() {\n    GL(glDeleteBuffers(1, &SceneMatrices));\n    BoxDepthSpaceOcclusionProgram.Destroy();\n    Box.Destroy();\n    CreatedScene = false;\n}'''
+new_destroy = '''void Scene::Destroy() {\n    GL(glDeleteBuffers(1, &SceneMatrices));\n    QuestMrDestroyAllUiTextMeshes();\n    QuestMrDestroyImportedMesh();\n    BoxDepthSpaceOcclusionProgram.Destroy();\n    Box.Destroy();\n    CreatedScene = false;\n}'''
 if old_destroy not in text:
     raise SystemExit('v1.0.1 Scene::Destroy lifecycle anchor not found')
 text = text.replace(old_destroy, new_destroy, 1)
@@ -172,6 +172,6 @@ if pointer_anchor not in text:
 text = text.replace(pointer_anchor, size_draw, 1)
 
 cpp.write_text(text)
-print('v1.0.1 UI text meshes reset on Scene::Create: ON')
-print('v1.0.1 UI text meshes released on Scene::Destroy: ON')
+print('v1.0.1 UI + imported model GPU handles reset on Scene::Create: ON')
+print('v1.0.1 UI + imported model GL resources released on Scene::Destroy: ON')
 print('v1.0.1 physical size readout FIT/32MM/75MM/150MM/300MM: ON')
