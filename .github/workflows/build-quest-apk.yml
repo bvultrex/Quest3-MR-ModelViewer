@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '0.3.6'
+  APP_VERSION: '0.3.7'
   APP_ID: 'com.bvultrex.quest3mrmodelviewer'
   APP_LABEL: 'Quest3 MR Model Viewer'
 
