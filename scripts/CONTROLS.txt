@@ -1,7 +1,7 @@
-Quest3 MR Model Viewer v0.3.5 - Room Tablet + GLB Import
+Quest3 MR Model Viewer v0.3.6 - Room Tablet + PBR GLB Import
 
-The UI now spawns already visible about 70 cm in front of the viewer and starts pinned in room space.
-It no longer follows or sits behind a controller.
+The UI spawns already visible about 70 cm in front of the viewer and starts pinned in room space.
+It does not follow or sit behind a controller.
 
 PIN MOVE
 - Tap once to enter MOVE mode.
@@ -11,9 +11,12 @@ PIN MOVE
 
 IMPORT GLB
 - Opens the Android document picker.
-- Select a .glb file.
+- Select a binary .glb file.
 - The copied model is validated before replacing the currently loaded mesh.
 - A loaded model spawns about 1 metre in front of the viewer.
+- v0.3.6 reads authored normals and UVs.
+- BaseColor, Normal and Metallic/Roughness textures are supported for the first material.
+- v0.3.6 intentionally accepts one material per imported GLB; additional materials are skipped safely.
 
 LIGHTING SLIDERS
 - AMBIENT
