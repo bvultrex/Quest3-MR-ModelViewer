@@ -51,10 +51,13 @@ class QuestDepthBrowserActivity : AppSystemActivity() {
             settingsCreator = {
               UIPanelSettings(
                   shape = QuadShapeOptions(width = 1.45f, height = 0.90f),
+                  // 1450x900 dp at Meta's default 288 dpi is already roughly 2610x1620 px.
+                  // v0.1.1 keeps that healthy source resolution and removes the real quality
+                  // bottleneck: Mesh mode resampling through the application's eye buffer.
                   display = DpDisplayOptions(width = 1450f, height = 900f),
-                  // Mesh mode is intentional for v0.1: Environment Depth must be able to
-                  // participate in normal 3D depth testing. Layer mode comes later.
-                  rendering = UIPanelRenderOptions(renderMode = PanelRenderMode.Mesh()),
+                  // Compositor Layer mode is Meta's recommended path for crisp text and UI.
+                  // Hardware test target: verify Environment Depth still occludes the layer.
+                  rendering = UIPanelRenderOptions(renderMode = PanelRenderMode.Layer()),
               )
             },
             panelSetupWithRootView = { rootView, _, _ -> configureBrowser(rootView) },
@@ -155,8 +158,9 @@ class QuestDepthBrowserActivity : AppSystemActivity() {
 }
 ''')
 
-print('Quest Depth Browser v0.1 patch applied')
+print('Quest Depth Browser v0.1.1 HQ Layer patch applied')
 print('app id: com.bvultrex.questdepthbrowser')
-print('panel: mesh-rendered 1.45m x 0.90m WebView')
+print('panel: compositor-layer 1.45m x 0.90m WebView')
+print('panel source: ~2610x1620 px at default 288 dpi')
 print('passthrough: ON')
 print('environment depth: OCCLUSION')
