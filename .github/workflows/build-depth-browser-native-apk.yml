@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '0.2.3'
+  APP_VERSION: '0.2.4'
   APP_ID: 'com.bvultrex.questdepthbrowser.native'
   APP_LABEL: 'Quest Depth Browser Native'
 
@@ -65,6 +65,8 @@ jobs:
           python3 /tmp/patch_v022.py
           python3 -m py_compile QuestDepthBrowserNative/v023/patch_v023.py
           python3 QuestDepthBrowserNative/v023/patch_v023.py
+          python3 -m py_compile QuestDepthBrowserNative/v024/patch_v024.py
+          python3 QuestDepthBrowserNative/v024/patch_v024.py
 
           ROOT=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion
           SRC="$ROOT/Src/XrPassthroughOcclusion.cpp"
@@ -76,16 +78,15 @@ jobs:
           grep -n 'nativeBrowser.HandleInput' "$SRC"
           grep -n 'rightGripState.currentState' "$SRC"
           grep -n 'browserGripAction' "$INPUT"
-          grep -n 'browserThumbstickAction' "$INPUT"
-          grep -n 'uPanelCenter' "$NATIVE"
-          grep -n 'uBrowserContentRect' "$NATIVE"
           grep -n 'resizeCorner' "$NATIVE"
-          grep -n 'setWindowAspect' "$JAVA"
+          grep -n 'VirtualDisplay owns the requested aspect ratio' "$NATIVE"
+          grep -n 'glUniform4f(gBrowserContentRectLocation, 0.0f, 0.0f, 1.0f, 1.0f)' "$NATIVE"
+          grep -n 'Native compositor-space frame' "$NATIVE"
+          grep -n 'virtualDisplay.resize' "$JAVA"
+          grep -n 'sourceSurfaceTexture.setDefaultBufferSize' "$JAVA"
+          grep -n 'settings.setLoadWithOverviewMode(true)' "$JAVA"
           grep -n 'Adressleiste einklappen' "$JAVA"
-          grep -n 'Native-Quest-style resize affordances' "$JAVA"
           grep -n 'germanTextFor' "$JAVA"
-          grep -n 'Theme_Material_Light_NoActionBar_Fullscreen' "$JAVA"
-          grep -n 'createBrowserUi(presentation.getContext())' "$JAVA"
           grep -n 'dispatchKeyEvent' "$ACTIVITY"
           grep -n 'samplerExternalOES' "$NATIVE"
           grep -n 'uEnvironmentDepthTexture' "$NATIVE"
