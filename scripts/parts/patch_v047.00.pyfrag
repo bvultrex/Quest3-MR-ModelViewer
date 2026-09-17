@@ -1,0 +1,63 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.0.1 RC: replace misleading raw glTF metre mode with explicit physical
+# largest-dimension presets suitable for models whose authoring unit is unknown.
+old_state = '    static bool realScaleMode = false;\n    static bool fullPbrMode = false;'
+new_state = '''    static int physicalSizePreset = 0; // 0 FIT, 1 32mm, 2 75mm, 3 150mm, 4 300mm\n    static bool fullPbrMode = false;'''
+if old_state not in text:
+    raise SystemExit('v1.0.1 physical size state anchor not found')
+text = text.replace(old_state, new_state, 1)
+
+old_constants = '''    constexpr float kResetY = -0.266f;\n    constexpr float kPanelSpawnDistance = -0.70f;'''
+new_constants = '''    constexpr float kResetY = -0.266f;\n    constexpr float kPhysicalSizeMeters[5] = {0.0f, 0.032f, 0.075f, 0.150f, 0.300f};\n    constexpr float kPanelSpawnDistance = -0.70f;'''
+if old_constants not in text:
+    raise SystemExit('v1.0.1 physical size constants anchor not found')
+text = text.replace(old_constants, new_constants, 1)
+
+old_row = '''            if (modelMoveTouchNow && uiTriggerPressed && importedModelPlaced) {\n                realScaleMode = !realScaleMode;\n            }\n            modelMoveMode = false;'''
+new_row = '''            if (modelMoveTouchNow && uiTriggerPressed && importedModelPlaced) {\n                physicalSizePreset = (physicalSizePreset + 1) % 5;\n            }\n            modelMoveMode = false;'''
+if old_row not in text:
+    raise SystemExit('v1.0.1 physical size button anchor not found')
+text = text.replace(old_row, new_row, 1)
+
+old_scale_exit = '''                modelScaleSlider = std::max(\n                    0.0f,\n                    std::min(1.0f, (localX - modelMinX) / (2.0f * kSliderHalfWidth)));\n                realScaleMode = false;'''
+new_scale_exit = '''                modelScaleSlider = std::max(\n                    0.0f,\n                    std::min(1.0f, (localX - modelMinX) / (2.0f * kSliderHalfWidth)));\n                physicalSizePreset = 0;'''
+if old_scale_exit not in text:
+    raise SystemExit('v1.0.1 scale slider preset exit anchor not found')
+text = text.replace(old_scale_exit, new_scale_exit, 1)
+
+text = text.replace('                realScaleMode = false;\n                fullPbrMode = false;',
+                    '                physicalSizePreset = 0;\n                fullPbrMode = false;', 1)
+text = text.replace('        realScaleMode = false;\n        modelGrabbed = false;',
+                    '        physicalSizePreset = 0;\n        modelGrabbed = false;', 1)
+
+old_matrix = '        const float fittedScale = realScaleMode ? 1.0f : (gQuestMrImportedMesh.fitScale * modelScaleMultiplier);'
+new_matrix = '''        const float fittedScale =\n            (physicalSizePreset > 0 && gQuestMrImportedMesh.maxExtent > 0.000001f)\n                ? (kPhysicalSizeMeters[physicalSizePreset] / gQuestMrImportedMesh.maxExtent)\n                : (gQuestMrImportedMesh.fitScale * modelScaleMultiplier);'''
+if old_matrix not in text:
+    raise SystemExit('v1.0.1 physical size matrix anchor not found')
+text = text.replace(old_matrix, new_matrix, 1)
+
+old_extent = '''        const float displayedExtent = realScaleMode\n            ? gQuestMrImportedMesh.maxExtent\n            : (0.34f * grabScaleMultiplier);'''
+new_extent = '''        const float displayedExtent = physicalSizePreset > 0\n            ? kPhysicalSizeMeters[physicalSizePreset]\n            : (0.34f * grabScaleMultiplier);'''
+if old_extent not in text:
+    raise SystemExit('v1.0.1 physical grab extent anchor not found')
+text = text.replace(old_extent, new_extent, 1)
+
+old_label = 'QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.158f, -0.0060f, 0.00132f, "REAL SCALE");'
+new_label = 'QuestMrAppendUiText(vertices, indices, -0.105f, -0.1535f, -0.0060f, 0.00128f, "SIZE");'
+if old_label not in text:
+    raise SystemExit('v1.0.1 SIZE label anchor not found')
+text = text.replace(old_label, new_label, 1)
+
+old_pad = '''        drawUiRect(\n            modelMovePad,\n            realScaleMode ? 0.16f : 0.16f,\n            realScaleMode ? 0.50f : 0.34f,\n            realScaleMode ? 0.32f : 0.58f);'''
+new_pad = '''        drawUiRect(\n            modelMovePad,\n            physicalSizePreset > 0 ? 0.16f : 0.16f,\n            physicalSizePreset > 0 ? 0.50f : 0.34f,\n            physicalSizePreset > 0 ? 0.32f : 0.58f);'''
+if old_pad not in text:
+    raise SystemExit('v1.0.1 SIZE pad anchor not found')
+text = text.replace(old_pad, new_pad, 1)
+
+cpp.write_text(text)
+print('v1.0.1 physical SIZE presets FIT/32/75/150/300mm: ON')
+print('v1.0.1 raw glTF 1-unit=1-metre button: REMOVED')
