@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '0.3.2'
+  APP_VERSION: '0.3.3'
   APP_ID: 'com.bvultrex.questdepthbrowser.native'
   APP_LABEL: 'Quest Depth Browser Native'
 
@@ -81,6 +81,8 @@ jobs:
           python3 QuestDepthBrowserNative/v031/patch_v031.py
           python3 -m py_compile QuestDepthBrowserNative/v032/patch_v032.py
           python3 QuestDepthBrowserNative/v032/patch_v032.py
+          python3 -m py_compile QuestDepthBrowserNative/v033/patch_v033.py
+          python3 QuestDepthBrowserNative/v033/patch_v033.py
 
           ROOT=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion
           SRC="$ROOT/Src/XrPassthroughOcclusion.cpp"
@@ -100,7 +102,10 @@ jobs:
           grep -n 'SurfaceTexture crop matrix' "$NATIVE" || true
           grep -n 'safeScale = 1.0f' "$JAVA"
           grep -n 'new Presentation' "$JAVA"
-          grep -n '2560' "$NATIVE"
+          grep -n 'attrs.width = surfaceWidth' "$JAVA"
+          grep -n 'Color.MAGENTA' "$JAVA"
+          grep -n 'Color.CYAN' "$JAVA"
+          grep -n 'TAP_COUNT = 13' "$NATIVE"
           grep -n 'Gravity.TOP | Gravity.LEFT' "$JAVA"
           grep -n '/user/hand/left/input/squeeze/value' "$INPUT"
           grep -n 'GL_LINEAR' "$NATIVE"
