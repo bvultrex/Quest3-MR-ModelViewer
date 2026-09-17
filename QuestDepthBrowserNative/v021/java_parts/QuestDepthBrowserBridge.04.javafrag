@@ -1,0 +1,78 @@
+        return Math.max(1, Math.round(value * density));
+    }
+
+    private static void navigate() {
+        if (webView == null || addressBar == null) return;
+        String url = addressBar.getText().toString().trim();
+        if (url.isEmpty()) return;
+        if (!url.contains("://")) url = "https://" + url;
+        webView.loadUrl(url);
+        webView.requestFocus();
+    }
+
+    private static void stopInternal() {
+        try {
+            if (webView != null) {
+                webView.stopLoading();
+                webView.loadUrl("about:blank");
+                webView.destroy();
+            }
+        } catch (Throwable ignored) {}
+        webView = null;
+        addressBar = null;
+        rootFrame = null;
+        pointerOverlay = null;
+        pointerDownTime = 0;
+        surfaceWidth = 0;
+        surfaceHeight = 0;
+
+        try {
+            if (presentation != null) presentation.dismiss();
+        } catch (Throwable ignored) {}
+        presentation = null;
+
+        try {
+            if (virtualDisplay != null) virtualDisplay.release();
+        } catch (Throwable ignored) {}
+        virtualDisplay = null;
+
+        try {
+            if (surface != null) surface.release();
+        } catch (Throwable ignored) {}
+        surface = null;
+    }
+
+    private static final class PointerOverlay extends View {
+        private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint dot = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private float x;
+        private float y;
+        private boolean visible;
+
+        PointerOverlay(Context context) {
+            super(context);
+            setClickable(false);
+            setFocusable(false);
+            ring.setStyle(Paint.Style.STROKE);
+            ring.setStrokeWidth(5f);
+            ring.setColor(Color.WHITE);
+            dot.setStyle(Paint.Style.FILL);
+            dot.setColor(Color.rgb(54, 156, 255));
+        }
+
+        void setPointer(float px, float py, boolean show) {
+            x = px;
+            y = py;
+            visible = show;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            if (!visible) return;
+            canvas.drawCircle(x, y, 15f, ring);
+            canvas.drawCircle(x, y, 5f, dot);
+        }
+    }
+}
