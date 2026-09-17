@@ -2,15 +2,14 @@
 
 Standalone mixed-reality GLB viewer for Meta Quest 3 / Quest 3S.
 
-## v1.0.0
+## v1.0.1 release candidate
 
 The viewer runs natively on Quest using Android + C++ OpenXR and Meta Environment Depth. It is built from Meta OpenXR SDK v85 `XrPassthroughOcclusion` through a reproducible GitHub Actions pipeline.
 
 ### Core features
 
 - color passthrough mixed reality
-- `XR_META_environment_depth` real-world occlusion
-- soft filtered depth edge treatment
+- `XR_META_environment_depth` real-world occlusion with filtered depth edges
 - standalone ARM64 Quest APK
 - Android Storage Access Framework GLB picker
 - safe cold start: previously imported GLBs are never auto-loaded
@@ -21,27 +20,26 @@ The viewer runs natively on Quest using Android + C++ OpenXR and Meta Environmen
 - direct grip manipulation of the floating control tablet
 - direct one-hand grip manipulation of imported models
 - manual model scale and yaw controls
-- `REAL SCALE` mode: glTF 1 linear unit is rendered as 1 real-world metre
+- physical SIZE presets based on the model's largest dimension: FIT / 32MM / 75MM / 150MM / 300MM
 - visible import state: `IDLE`, `WAIT`, `READY`, `ERROR`
 
 ### Hardware-tested behavior
 
-Quest 3 hardware testing confirmed:
+Quest 3 hardware testing confirmed passthrough, Environment Depth occlusion, dual-controller tablet interaction, GLB picker round trips, textured PBR rendering, direct tablet/model grip and smooth operation with validated lower-detail models including the ~100k-triangle class.
 
-- passthrough and Environment Depth occlusion
-- stable tablet/UI interaction
-- left/right trigger control
-- direct tablet grip + orientation
-- GLB document picker round trip
-- textured PBR GLB rendering
-- direct model grip manipulation
-- stable operation with the validated lower-detail reference models, including a ~100k-triangle class model
+A 3.03M-triangle reference reproducibly caused severe XR/system lag in the current renderer. v1 keeps a conservative **2,000,000 triangle import ceiling**.
 
-A 3.03M-triangle reference reproducibly caused severe XR/system lag in the current single-draw renderer. v1.0 therefore keeps a conservative **2,000,000 triangle import ceiling**. This is a deliberate safety limit, not a file-format limitation.
+### v1.0.0 regression and v1.0.1 fix
+
+The first v1.0.0 candidate exposed three hardware issues:
+
+- raw glTF `1 unit = 1 metre` was not useful for assets whose authoring unit does not represent intended print/display size,
+- tablet text could disappear after an XR/scene restart,
+- stale OpenGL object names could plausibly reappear as a white rendering artifact after import.
+
+v1.0.1 removes the raw metre toggle and replaces it with explicit physical largest-dimension presets. It also resets/rebuilds UI GPU meshes on scene creation and releases UI/imported-model GL resources on scene destruction so stale handles cannot cross an EGL/scene lifecycle boundary.
 
 ## Import envelope
-
-Current safety guards:
 
 - GLB file: 192 MiB max
 - vertices: 3,000,000 max
@@ -52,7 +50,7 @@ Current safety guards:
 - estimated total GPU model resources: 256 MiB max
 - estimated CPU import working set: 384 MiB max
 
-The most reliable v1.0 asset path is a binary `.glb` using triangle geometry and conventional PBR textures. Animation, skinning and advanced glTF extension support are outside the v1.0 scope.
+The most reliable v1 asset path is a binary `.glb` using triangle geometry and conventional PBR textures. Animation, skinning and advanced glTF extension support are outside v1 scope.
 
 ## Controls
 
@@ -60,27 +58,22 @@ The most reliable v1.0 asset path is a binary `.glb` using triangle geometry and
 
 - Point with either controller and press trigger to activate buttons.
 - Hold trigger while dragging sliders.
-- Put either controller near the tablet and hold controller Grip/Squeeze to grab it.
+- Put either controller near the tablet and hold Grip/Squeeze to grab it.
 - Move/rotate freely and release Grip to leave it in room space.
 
 ### Model
 
 - Put either controller near the model and hold Grip/Squeeze to grab it.
-- Position and orientation follow the controller with no snap on pickup.
 - Release Grip to leave the model in room space.
 - `SCALE` adjusts fitted display scale.
 - `ROTATE` adjusts model yaw.
-- `REAL SCALE` bypasses automatic fitting and renders glTF metres at physical 1:1 size.
-- Moving the `SCALE` slider automatically exits `REAL SCALE`.
+- `SIZE` cycles FIT → 32MM → 75MM → 150MM → 300MM → FIT. The selected millimetre value is the model's largest displayed dimension.
+- Moving `SCALE` returns SIZE to FIT.
 - `RESET ALL` restores default model transform and lighting state.
 
 ## Build
 
-GitHub Actions workflow:
-
-`.github/workflows/build-quest-apk.yml`
-
-The pipeline installs the Android toolchain, checks out pinned dependencies, applies the modular viewer patches, builds the native Quest APK, validates it, calculates checksums and publishes an artifact.
+GitHub Actions workflow: `.github/workflows/build-quest-apk.yml`
 
 Pinned dependencies:
 
@@ -88,11 +81,11 @@ Pinned dependencies:
 - cgltf v1.15
 - stb image commit `2c980bb59875b0d32144a71867fbdebb2f77cd20`
 
-Build logic deliberately lives in `scripts/` rather than giant workflow YAML payloads.
+Build logic lives in `scripts/` and modular patch fragments rather than workflow YAML payloads.
 
 ## Install
 
-Download the latest successful `Quest3-MR-ModelViewer-v1.0.0` artifact from GitHub Actions and sideload the APK to the headset. Grant the requested spatial/environment permissions on first launch.
+Download the latest successful `Quest3-MR-ModelViewer-v1.0.1` artifact from GitHub Actions and sideload the APK. Grant requested spatial/environment permissions on first launch.
 
 ## Project continuity
 
