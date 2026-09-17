@@ -1,0 +1,14 @@
+Quest Depth Browser Native v0.2.0
+
+This build is a render-path proof-of-concept.
+
+Expected behavior:
+- Passthrough room visible.
+- A large Wikipedia browser panel appears about 1.15 m ahead.
+- Browser image should be compositor-sharp.
+- Real objects closer than the panel should occlude it using Environment Depth.
+
+Known v0.2.0 limitation:
+- XR controller clicks are not forwarded to the WebView yet.
+- The address bar/buttons visible inside the texture are diagnostic only for this build.
+- Panel position is fixed for the first native compositor test.
