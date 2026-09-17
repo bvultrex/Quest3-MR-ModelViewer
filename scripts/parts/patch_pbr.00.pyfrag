@@ -1,0 +1,212 @@
+from pathlib import Path
+import re
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# ---------------------------------------------------------------------------
+# 1) stb_image + PBR vertex attributes.
+# ---------------------------------------------------------------------------
+if '#define STB_IMAGE_IMPLEMENTATION' not in text:
+    anchor = '#include "cgltf.h"\n'
+    if anchor not in text:
+        raise SystemExit('cgltf include anchor not found')
+    text = text.replace(
+        anchor,
+        anchor + '\n#define STB_IMAGE_IMPLEMENTATION\n#define STBI_ONLY_PNG\n#define STBI_ONLY_JPEG\n#include "stb_image.h"\n',
+        1,
+    )
+
+old_enum = '''enum VertexAttributeLocation {
+    VERTEX_ATTRIBUTE_LOCATION_POSITION,
+    VERTEX_ATTRIBUTE_LOCATION_COLOR,
+    VERTEX_ATTRIBUTE_LOCATION_UV,
+    VERTEX_ATTRIBUTE_LOCATION_TRANSFORM
+};'''
+new_enum = '''enum VertexAttributeLocation {
+    VERTEX_ATTRIBUTE_LOCATION_POSITION,
+    VERTEX_ATTRIBUTE_LOCATION_COLOR,
+    VERTEX_ATTRIBUTE_LOCATION_UV,
+    VERTEX_ATTRIBUTE_LOCATION_TRANSFORM,
+    VERTEX_ATTRIBUTE_LOCATION_NORMAL
+};'''
+if old_enum not in text:
+    raise SystemExit('VertexAttributeLocation anchor not found')
+text = text.replace(old_enum, new_enum, 1)
+
+old_attrs = '''static VertexAttribute ProgramVertexAttributes[] = {
+    {VERTEX_ATTRIBUTE_LOCATION_POSITION, "vertexPosition"},
+    {VERTEX_ATTRIBUTE_LOCATION_COLOR, "vertexColor"},
+    {VERTEX_ATTRIBUTE_LOCATION_UV, "vertexUv"},
+    {VERTEX_ATTRIBUTE_LOCATION_TRANSFORM, "vertexTransform"}};'''
+new_attrs = '''static VertexAttribute ProgramVertexAttributes[] = {
+    {VERTEX_ATTRIBUTE_LOCATION_POSITION, "vertexPosition"},
+    {VERTEX_ATTRIBUTE_LOCATION_COLOR, "vertexColor"},
+    {VERTEX_ATTRIBUTE_LOCATION_UV, "vertexUv"},
+    {VERTEX_ATTRIBUTE_LOCATION_TRANSFORM, "vertexTransform"},
+    {VERTEX_ATTRIBUTE_LOCATION_NORMAL, "vertexNormal"}};'''
+if old_attrs not in text:
+    raise SystemExit('ProgramVertexAttributes anchor not found')
+text = text.replace(old_attrs, new_attrs, 1)
+
+old_vertex = '''struct QuestMrImportedVertex {
+    float position[3];
+    unsigned char color[4];
+};'''
+new_vertex = '''struct QuestMrImportedVertex {
+    float position[3];
+    float normal[3];
+    float uv[2];
+    unsigned char color[4];
+};'''
+if old_vertex not in text:
+    raise SystemExit('QuestMrImportedVertex anchor not found')
+text = text.replace(old_vertex, new_vertex, 1)
+
+old_mesh = '''struct QuestMrImportedMesh {
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    GLuint ibo = 0;
+    GLsizei indexCount = 0;
+    float center[3] = {0.0f, 0.0f, 0.0f};
+    float fitScale = 1.0f;
+    long long loadedStamp = -1;
+    bool loaded = false;
+};'''
+new_mesh = '''struct QuestMrImportedMesh {
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    GLuint ibo = 0;
+    GLuint baseColorTexture = 0;
+    GLuint normalTexture = 0;
+    GLuint metallicRoughnessTexture = 0;
+    GLsizei indexCount = 0;
+    float center[3] = {0.0f, 0.0f, 0.0f};
+    float fitScale = 1.0f;
+    float metallicFactor = 1.0f;
+    float roughnessFactor = 1.0f;
+    float normalScale = 1.0f;
+    long long loadedStamp = -1;
+    bool hasBaseColorTexture = false;
+    bool hasNormalTexture = false;
+    bool hasMetallicRoughnessTexture = false;
+    bool loaded = false;
+};'''
+if old_mesh not in text:
+    raise SystemExit('QuestMrImportedMesh anchor not found')
+text = text.replace(old_mesh, new_mesh, 1)
+
+old_destroy = '''    if (gQuestMrImportedMesh.ibo != 0) {
+        GL(glDeleteBuffers(1, &gQuestMrImportedMesh.ibo));
+    }
+    const long long stamp = gQuestMrImportedMesh.loadedStamp;'''
+new_destroy = '''    if (gQuestMrImportedMesh.ibo != 0) {
+        GL(glDeleteBuffers(1, &gQuestMrImportedMesh.ibo));
+    }
+    if (gQuestMrImportedMesh.baseColorTexture != 0) {
+        GL(glDeleteTextures(1, &gQuestMrImportedMesh.baseColorTexture));
+    }
+    if (gQuestMrImportedMesh.normalTexture != 0) {
+        GL(glDeleteTextures(1, &gQuestMrImportedMesh.normalTexture));
+    }
+    if (gQuestMrImportedMesh.metallicRoughnessTexture != 0) {
+        GL(glDeleteTextures(1, &gQuestMrImportedMesh.metallicRoughnessTexture));
+    }
+    const long long stamp = gQuestMrImportedMesh.loadedStamp;'''
+if old_destroy not in text:
+    raise SystemExit('QuestMrDestroyImportedMesh anchor not found')
+text = text.replace(old_destroy, new_destroy, 1)
+
+# ---------------------------------------------------------------------------
+# 2) Texture upload helper and PBR-aware crash-safe GLB loader.
+#    v0.3.6 intentionally supports one material per imported GLB. This matches
+#    our Meshy reference model and avoids silently applying the wrong texture
+#    set across a multi-material mesh. Extra materials are skipped safely.
+# ---------------------------------------------------------------------------
+helper_anchor = '\n\nbool QuestMrLoadGlb(const std::string& path, long long stamp) {'
+if helper_anchor not in text:
+    raise SystemExit('QuestMrLoadGlb helper anchor not found')
+texture_helper = r'''
+
+bool QuestMrUploadTextureView(
+    const cgltf_texture_view& textureView,
+    GLuint& outTexture,
+    const char* label) {
+    outTexture = 0;
+    if (textureView.texture == nullptr || textureView.texture->image == nullptr) {
+        return false;
+    }
+
+    const cgltf_image* image = textureView.texture->image;
+    if (image->buffer_view == nullptr || image->buffer_view->size == 0) {
+        ALOGE("QuestMR: %s texture is not embedded in a GLB bufferView", label);
+        return false;
+    }
+
+    const uint8_t* encoded = cgltf_buffer_view_data(image->buffer_view);
+    if (encoded == nullptr || image->buffer_view->size > 128LL * 1024LL * 1024LL) {
+        ALOGE("QuestMR: %s texture buffer is unavailable or too large", label);
+        return false;
+    }
+
+    int width = 0;
+    int height = 0;
+    int sourceComponents = 0;
+    stbi_uc* pixels = stbi_load_from_memory(
+        encoded,
+        static_cast<int>(image->buffer_view->size),
+        &width,
+        &height,
+        &sourceComponents,
+        4);
+    if (pixels == nullptr || width <= 0 || height <= 0 || width > 8192 || height > 8192) {
+        ALOGE("QuestMR: stb_image failed for %s texture: %s", label, stbi_failure_reason());
+        if (pixels != nullptr) {
+            stbi_image_free(pixels);
+        }
+        return false;
+    }
+
+    GL(glGenTextures(1, &outTexture));
+    GL(glBindTexture(GL_TEXTURE_2D, outTexture));
+    GL(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+    GL(glTexImage2D(
+        GL_TEXTURE_2D,
+        0,
+        GL_RGBA8,
+        width,
+        height,
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        pixels));
+
+    const cgltf_sampler* sampler = textureView.texture->sampler;
+    const GLint wrapS = (sampler != nullptr && sampler->wrap_s != 0)
+        ? static_cast<GLint>(sampler->wrap_s)
+        : GL_REPEAT;
+    const GLint wrapT = (sampler != nullptr && sampler->wrap_t != 0)
+        ? static_cast<GLint>(sampler->wrap_t)
+        : GL_REPEAT;
+    const GLint magFilter = (sampler != nullptr && sampler->mag_filter != 0)
+        ? static_cast<GLint>(sampler->mag_filter)
+        : GL_LINEAR;
+    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrapS));
+    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrapT));
+    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter));
+    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
+    GL(glGenerateMipmap(GL_TEXTURE_2D));
+    GL(glBindTexture(GL_TEXTURE_2D, 0));
+    stbi_image_free(pixels);
+
+    ALOGV(
+        "QuestMR: uploaded %s texture %dx%d components=%d",
+        label,
+        width,
+        height,
+        sourceComponents);
+    return true;
+}
+'''
+text = text.replace(helper_anchor, texture_helper + helper_anchor, 1)
+
