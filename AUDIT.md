@@ -2,117 +2,66 @@
 
 ## 2026-09-16 — Bootstrap / v0.1
 
-### Decisions
-
-- Use native OpenXR reference sample rather than requiring Unity locally.
-- Pin Meta OpenXR SDK to `v85` for reproducibility.
-- Use `XrPassthroughOcclusion` as the Environment Depth foundation.
-- Target ARM64 standalone Quest.
-- Build and debug-sign through GitHub Actions.
-
-### Hardening
-
-- Keep Meta's Java package namespace intact.
-- Brand through applicationId, label and version only.
-- Verify APK signature and metadata in CI.
-- Publish SHA-256 checksums.
+- Chose native OpenXR reference sample instead of requiring Unity locally.
+- Pinned Meta OpenXR SDK v85.
+- ARM64 standalone Quest target with GitHub Actions build/debug signing.
+- Preserve Meta Java namespace; brand via applicationId/label/version.
 
 ## 2026-09-17 — Hardware bring-up accepted
 
-Quest 3 hardware confirmed:
-
-- passthrough works,
-- Environment Depth works,
-- virtual geometry is correctly hidden by real objects,
-- the filtered v0.1.2 occlusion pass is the preferred visual baseline.
-
-Decision: preserve the v0.1.2 filtered Environment Depth path through later viewer revisions.
+Quest 3 confirmed passthrough, Environment Depth and correct real-world occlusion. The filtered v0.1.2 occlusion pass became the visual baseline and must be preserved unless intentionally retuned.
 
 ## 2026-09-17 — Viewer / GLB / PBR phase
 
-Implemented and iterated:
+Implemented runtime GLB loading, Android picker, transactional replacement, model bounds/fit, BaseColor/Normal/Metallic-Roughness PBR, sRGB/UV fixes, lighting controls, labelled tablet and trigger-gated controls.
 
-- runtime binary GLB loading with cgltf,
-- Android document picker,
-- transactional model replacement,
-- model bounds/fit transform,
-- BaseColor, Normal and Metallic/Roughness texture path,
-- BaseColor sRGB correction,
-- UV correction,
-- lighting controls,
-- labelled floating tablet UI,
-- trigger-gated buttons/sliders.
+Hardware testing exposed and fixed texture mapping, hover activation, picker foreground/return and stale cached GLB startup behavior.
 
-Hardware testing exposed and fixed:
+## 2026-09-17 — Safe boot regression
 
-- wrong/patchwork PBR texture appearance,
-- accidental hover activation,
-- picker returning behind the immersive app,
-- stale cached GLB being treated as a fresh import on startup.
+A persisted GLB could be treated as fresh input at process startup, causing a heavy import to progressively stall tracking, controllers and system UI.
 
-## 2026-09-17 — Safe boot / import regression
+Permanent rule: cached GLB is ignored on cold start; only a fresh picker transaction makes a source eligible for import.
 
-Severe regression observed: launching after a prior heavy import could progressively stall tracking, controller input and Meta system UI until a hard reset was required.
+## 2026-09-17 — Import budgets from hardware evidence
 
-Root cause class: persisted `questmr_import.glb` was eligible for native polling on process start.
+Older low-detail references require about 128 MiB mipmapped texture residency, so texture budget was raised to 160 MiB. A 3.03M-triangle / three-2K-map model passes memory preflight but reproducibly causes severe sustained XR/system lag.
 
-Permanent rule:
-
-- a cached GLB is ignored on cold start,
-- import eligibility begins only after a fresh picker transaction,
-- starting a picker transaction clears the stale app-private source file,
-- the currently displayed GPU model is not affected by clearing that source.
-
-This behavior must not be removed in future releases.
-
-## 2026-09-17 — Import budgets corrected by hardware evidence
-
-Two separate constraints were identified:
-
-1. Older low-detail references use 2K BaseColor + 2K Normal + 4K Metallic/Roughness. Their mipmapped texture residency is about 128 MiB, so the old 96 MiB texture budget was too low.
-2. A 3.03M-triangle reference with three 2K textures passes memory preflight but reproducibly causes severe sustained XR/system lag once rendered.
-
-Final v1.0 safety envelope:
-
-- file: 192 MiB
-- vertices: 3,000,000
-- indices: 12,000,000
-- triangles: 2,000,000
-- texture edge: 4096 px
-- mipmapped texture estimate: 160 MiB
-- total GPU estimate: 256 MiB
-- CPU import estimate: 384 MiB
-
-Decision: do not raise the 2M triangle limit without LOD, simplification, chunking or another renderer-side performance strategy.
+Final safety envelope: 192 MiB file, 3M vertices, 12M indices, 2M triangles, 4096px texture edge, 160 MiB textures, 256 MiB GPU estimate, 384 MiB CPU import estimate.
 
 ## 2026-09-17 — Interaction finalization
 
-Hardware confirmed:
+Hardware confirmed full-orientation tablet placement, independent left/right trigger input, per-hand squeeze/grip, direct no-snap tablet grip and direct no-snap model grip. Old MODEL MOVE toggle retired.
 
-- tablet follows full controller orientation,
-- left and right controllers can independently operate the UI,
-- controller squeeze/grip is exposed per hand,
-- tablet can be directly grabbed with preserved hand-to-tablet offset,
-- model can be directly grabbed with preserved hand-to-model offset,
-- the non-grabbing hand remains available for UI interaction.
+## 2026-09-17 — v1.0.0 candidate rejected on hardware
 
-The old click-to-toggle MODEL MOVE interaction was retired in favor of direct physical manipulation.
+The first v1.0.0 candidate added raw `REAL SCALE` (`1 glTF unit = 1 metre`) and import status text. Quest testing immediately found:
 
-## 2026-09-17 — v1.0 final feature pass
+1. raw metre scale was far too large for the user's imported Meshy/miniature assets because source coordinates did not encode intended print/display units,
+2. UI labels disappeared after restarting the app,
+3. a strange white rendering artifact appeared while loading a file.
 
-Added final planned v1 features:
+Decision: v1.0.0 is **not accepted**.
 
-- `REAL SCALE`: bypass automatic fit and render glTF linear units at physical metre scale,
-- moving the manual SCALE slider exits real-scale mode,
-- real-scale-aware model grab radius,
-- visible import state text: IDLE / WAIT / READY / ERROR.
+## 2026-09-17 — v1.0.1 regression fix
 
-Documentation was rewritten to match the actual final architecture:
+Scaling correction:
 
-- `README.md`
-- `PROJECT_STATE.md`
-- `BUILD_STATE.md`
-- `HANDOFF.md`
-- `scripts/CONTROLS.txt`
+- removed raw metre-scale interaction,
+- added explicit largest-dimension presets: FIT / 32MM / 75MM / 150MM / 300MM,
+- manual SCALE returns to FIT.
 
-Release policy: after CI succeeds, perform one final Quest 3 acceptance test of REAL SCALE and import status. If that passes, v1.0.0 is accepted and further features move to v1.1.
+GL lifecycle diagnosis:
+
+The static text mesh wrappers could retain `built=true` and numeric VAO/VBO/IBO names across a scene/EGL restart even though the underlying GL resources were no longer valid. Later allocations could reuse those same numeric names. This explains missing labels and is a plausible cause of the white artifact when stale UI state referenced unrelated newly allocated geometry.
+
+Hardening implemented:
+
+- invalidate all static UI mesh wrappers on `Scene::Create`,
+- clear imported-model GL handles on `Scene::Create` while retaining only the safe file stamp,
+- release UI text GL resources on `Scene::Destroy`,
+- explicitly destroy imported-model GL resources on `Scene::Destroy`.
+
+Policy: never carry raw OpenGL object names across an EGL/scene lifecycle boundary.
+
+v1.0.1 remains a release candidate until the restart, import-artifact and physical SIZE behaviors pass a final Quest 3 hardware test.
