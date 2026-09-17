@@ -1,0 +1,17 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+old_move = '''    // MOVE mode changes only the panel position. Its room-facing orientation remains stable,\n    // so the controls never flip to the far side of a controller.\n    if (!panelPinned && !scene.TrackedControllers.empty()) {\n        const Matrix4f moverPose(scene.TrackedControllers[0].Pose);\n        const Matrix4f moverTarget = moverPose * Matrix4f::Translation(0.0f, 0.0f, -0.34f);\n        panelPose.M[0][3] = moverTarget.M[0][3];\n        panelPose.M[1][3] = moverTarget.M[1][3];\n        panelPose.M[2][3] = moverTarget.M[2][3];\n    }\n'''
+
+new_move = '''    // QuestMR v0.3.13 controller-oriented tablet placement.\n    // While PIN MOVE is active, inherit the controller's complete pose rather\n    // than translation only. Re-pinning freezes both position and orientation.\n    if (!panelPinned && !scene.TrackedControllers.empty()) {\n        const Matrix4f moverPose(scene.TrackedControllers[0].Pose);\n        panelPose = moverPose * Matrix4f::Translation(0.0f, 0.0f, -0.34f);\n    }\n'''
+
+if old_move not in text:
+    raise SystemExit('v0.3.13 panel move anchor not found')
+
+text = text.replace(old_move, new_move, 1)
+cpp.write_text(text)
+
+print('v0.3.13 PIN MOVE follows controller position + orientation: ON')
+print('v0.3.13 re-pin freezes full tablet pose: ON')
