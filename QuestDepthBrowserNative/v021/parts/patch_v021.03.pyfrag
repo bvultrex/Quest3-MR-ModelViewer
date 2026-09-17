@@ -1,0 +1,110 @@
+        (static_cast<float>(TextureHeight) / static_cast<float>(TextureWidth));
+
+    for (int eye = 0; eye < 2; ++eye) {
+''',
+    'panel aspect from browser texture')
+
+render_uniform_anchor = '''    glUniform1i(EyeLocation, eye);
+    glUniform1f(HasDepthLocation, hasDepth ? 1.0f : 0.0f);
+
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+'''
+render_uniform_replacement = '''    glUniform1i(EyeLocation, eye);
+    glUniform1f(HasDepthLocation, hasDepth ? 1.0f : 0.0f);
+    glUniform3f(
+        PanelCenterLocation,
+        PanelCenter.x,
+        PanelCenter.y,
+        PanelCenter.z);
+    glUniform2f(PanelSizeLocation, PanelWidthMeters, PanelHeightMeters);
+
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+'''
+cpp = replace_once(cpp, render_uniform_anchor, render_uniform_replacement, 'panel transform shader upload')
+
+render_method_anchor = 'void QuestDepthBrowserNative::Render(\n'
+if render_method_anchor not in cpp:
+    raise SystemExit('v0.2.1 anchor missing: Render method insertion')
+interaction_impl = r'''
+namespace {
+XrVector3f RotateVectorByQuaternion(const XrQuaternionf& q, const XrVector3f& v) {
+    const XrVector3f qv{q.x, q.y, q.z};
+    const XrVector3f t{
+        2.0f * (qv.y * v.z - qv.z * v.y),
+        2.0f * (qv.z * v.x - qv.x * v.z),
+        2.0f * (qv.x * v.y - qv.y * v.x)};
+    return {
+        v.x + q.w * t.x + (qv.y * t.z - qv.z * t.y),
+        v.y + q.w * t.y + (qv.z * t.x - qv.x * t.z),
+        v.z + q.w * t.z + (qv.x * t.y - qv.y * t.x)};
+}
+
+float Distance3(const XrVector3f& a, const XrVector3f& b) {
+    const float x = a.x - b.x;
+    const float y = a.y - b.y;
+    const float z = a.z - b.z;
+    return std::sqrt(x * x + y * y + z * z);
+}
+} // namespace
+
+void QuestDepthBrowserNative::HandleInput(
+    JNIEnv* env,
+    const XrPosef& aimPose,
+    bool aimActive,
+    bool triggerPressed,
+    float gripValue,
+    float thumbstickY) {
+    if (!Ready || BridgeClass == nullptr) return;
+
+    const bool gripPressed = aimActive && gripValue > 0.55f;
+    if (!aimActive) {
+        if (HidePointerMethod != nullptr) {
+            env->CallStaticVoidMethod(BridgeClass, HidePointerMethod);
+            if (env->ExceptionCheck()) env->ExceptionClear();
+        }
+        TriggerWasPressed = triggerPressed;
+        GripWasPressed = gripPressed;
+        PointerWasInside = false;
+        return;
+    }
+
+    const XrVector3f forward = RotateVectorByQuaternion(
+        aimPose.orientation, XrVector3f{0.0f, 0.0f, -1.0f});
+
+    if (gripPressed) {
+        if (!GripWasPressed) {
+            GrabDistance = std::max(
+                0.45f,
+                std::min(3.0f, Distance3(PanelCenter, aimPose.position)));
+        }
+
+        PanelCenter = {
+            aimPose.position.x + forward.x * GrabDistance,
+            aimPose.position.y + forward.y * GrabDistance,
+            aimPose.position.z + forward.z * GrabDistance};
+
+        if (std::abs(thumbstickY) > 0.15f) {
+            const float scaleStep = 1.0f + thumbstickY * 0.008f;
+            PanelWidthMeters = std::max(
+                0.45f,
+                std::min(2.20f, PanelWidthMeters * scaleStep));
+            PanelHeightMeters = PanelWidthMeters *
+                (static_cast<float>(TextureHeight) / static_cast<float>(TextureWidth));
+        }
+
+        if (HidePointerMethod != nullptr) {
+            env->CallStaticVoidMethod(BridgeClass, HidePointerMethod);
+            if (env->ExceptionCheck()) env->ExceptionClear();
+        }
+        PointerWasInside = false;
+        TriggerWasPressed = triggerPressed;
+        GripWasPressed = true;
+        return;
+    }
+
+    bool inside = false;
+    float u = LastPointerU;
+    float v = LastPointerV;
+    if (std::abs(forward.z) > 0.00001f) {
+        const float t = (PanelCenter.z - aimPose.position.z) / forward.z;
+        if (t > 0.0f) {
