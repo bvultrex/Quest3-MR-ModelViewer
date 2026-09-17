@@ -1,0 +1,37 @@
+from pathlib import Path
+
+android_root = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android')
+manifest_path = android_root / 'AndroidManifest.xml'
+activity_path = android_root / 'questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java'
+
+# v0.3.8 proved the translucent helper can leave Horizon's immersive XR layer
+# visually in front of the Android document picker. Make the helper an opaque
+# conventional Android Activity so the headset deliberately transitions into
+# 2D system UI while choosing a document.
+manifest = manifest_path.read_text()
+old_theme = 'android:theme="@android:style/Theme.Translucent.NoTitleBar" />'
+new_theme = '''android:launchMode="singleTop"\n            android:theme="@android:style/Theme.Material.NoActionBar" />'''
+if old_theme in manifest:
+    manifest = manifest.replace(old_theme, new_theme, 1)
+elif 'android:theme="@android:style/Theme.Material.NoActionBar"' not in manifest:
+    raise SystemExit('v0.3.9 picker manifest theme anchor not found')
+manifest_path.write_text(manifest)
+
+java = activity_path.read_text()
+if 'import android.graphics.Color;' not in java:
+    java = java.replace(
+        'import android.content.Intent;\n',
+        'import android.content.Intent;\nimport android.graphics.Color;\nimport android.view.View;\n',
+        1,
+    )
+
+oncreate_anchor = '''        super.onCreate(savedInstanceState);\n        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);'''
+if 'QUESTMR_V039_VISIBLE_PICKER' not in java:
+    if oncreate_anchor not in java:
+        raise SystemExit('v0.3.9 picker onCreate anchor not found')
+    replacement = '''        super.onCreate(savedInstanceState);\n        // QUESTMR_V039_VISIBLE_PICKER: explicitly leave immersive presentation\n        // before delegating to Android's Storage Access Framework.\n        getWindow().setStatusBarColor(Color.BLACK);\n        getWindow().setNavigationBarColor(Color.BLACK);\n        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);\n        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);'''
+    java = java.replace(oncreate_anchor, replacement, 1)
+
+activity_path.write_text(java)
+print('v0.3.9 opaque 2D picker transition: ON')
+print('v0.3.9 system document picker forced out of immersive UI: ON')
