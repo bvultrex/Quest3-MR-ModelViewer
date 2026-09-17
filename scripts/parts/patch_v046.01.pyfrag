@@ -1,0 +1,128 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.0 import-state text. Four tiny static meshes keep runtime work negligible.
+old_tail = '''    gQuestMrUiTextMesh.indexCount = static_cast<GLsizei>(indices.size());\n    gQuestMrUiTextMesh.built = true;\n}\n\n} // namespace\n'''
+new_tail = r'''    gQuestMrUiTextMesh.indexCount = static_cast<GLsizei>(indices.size());
+    gQuestMrUiTextMesh.built = true;
+}
+
+QuestMrUiTextMesh gQuestMrImportStatusMeshes[4];
+
+void QuestMrBuildSingleStatusMesh(QuestMrUiTextMesh& mesh, const char* label) {
+    if (mesh.built) {
+        return;
+    }
+    std::vector<QuestMrImportedVertex> vertices;
+    std::vector<uint32_t> indices;
+    vertices.reserve(512);
+    indices.reserve(768);
+    QuestMrAppendCenteredUiText(
+        vertices, indices, 0.073f, 0.111f, -0.0062f, 0.00112f, label);
+    if (vertices.empty() || indices.empty()) {
+        return;
+    }
+    GL(glGenVertexArrays(1, &mesh.vao));
+    GL(glBindVertexArray(mesh.vao));
+    GL(glGenBuffers(1, &mesh.vbo));
+    GL(glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo));
+    GL(glBufferData(
+        GL_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(vertices.size() * sizeof(QuestMrImportedVertex)),
+        vertices.data(),
+        GL_STATIC_DRAW));
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_POSITION));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_POSITION,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, position))));
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_COLOR));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_COLOR,
+        4,
+        GL_UNSIGNED_BYTE,
+        GL_TRUE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, color))));
+    GL(glGenBuffers(1, &mesh.ibo));
+    GL(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ibo));
+    GL(glBufferData(
+        GL_ELEMENT_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(indices.size() * sizeof(uint32_t)),
+        indices.data(),
+        GL_STATIC_DRAW));
+    GL(glBindVertexArray(0));
+    mesh.indexCount = static_cast<GLsizei>(indices.size());
+    mesh.built = true;
+}
+
+void QuestMrBuildImportStatusMeshes() {
+    static const char* labels[4] = {"IDLE", "WAIT", "READY", "ERROR"};
+    for (int i = 0; i < 4; ++i) {
+        QuestMrBuildSingleStatusMesh(gQuestMrImportStatusMeshes[i], labels[i]);
+    }
+}
+
+} // namespace
+'''
+if old_tail not in text:
+    raise SystemExit('v1.0 status mesh function anchor not found')
+text = text.replace(old_tail, new_tail, 1)
+
+old_build = '''    if (panelInitialized) {\n        QuestMrBuildUiTextMesh();\n'''
+new_build = '''    if (panelInitialized) {\n        QuestMrBuildUiTextMesh();\n        QuestMrBuildImportStatusMeshes();\n'''
+if old_build not in text:
+    raise SystemExit('v1.0 status build call anchor not found')
+text = text.replace(old_build, new_build, 1)
+
+old_after_labels = '''            GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));\n        }\n\n        if (havePointer) {'''
+new_after_labels = r'''            GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+        }
+
+        const int importStatusIndex = std::max(0, std::min(3, gQuestMrImportState));
+        const QuestMrUiTextMesh& statusMesh = gQuestMrImportStatusMeshes[importStatusIndex];
+        if (statusMesh.built && statusMesh.indexCount > 0) {
+            float statusR = 0.70f;
+            float statusG = 0.76f;
+            float statusB = 0.84f;
+            if (importStatusIndex == 1) {
+                statusR = 0.96f; statusG = 0.78f; statusB = 0.30f;
+            } else if (importStatusIndex == 2) {
+                statusR = 0.42f; statusG = 0.92f; statusB = 0.62f;
+            } else if (importStatusIndex == 3) {
+                statusR = 0.96f; statusG = 0.42f; statusB = 0.34f;
+            }
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                1.0f));
+            GL(glUniform3f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+                statusR,
+                statusG,
+                statusB));
+            GL(glUniformMatrix4fv(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+                1,
+                GL_TRUE,
+                &panelPose.M[0][0]));
+            GL(glBindVertexArray(statusMesh.vao));
+            GL(glDrawElements(
+                GL_TRIANGLES,
+                statusMesh.indexCount,
+                GL_UNSIGNED_INT,
+                nullptr));
+            GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+        }
+
+        if (havePointer) {'''
+if old_after_labels not in text:
+    raise SystemExit('v1.0 status draw anchor not found')
+text = text.replace(old_after_labels, new_after_labels, 1)
+
+cpp.write_text(text)
+print('v1.0 import status text IDLE/WAIT/READY/ERROR: ON')
