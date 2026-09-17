@@ -32,27 +32,33 @@ run_fragmented_patch patch_v040
 run_fragmented_patch patch_v041
 run_fragmented_patch patch_v042
 run_fragmented_patch patch_v043
+run_fragmented_patch patch_v044
 
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
+INPUT="$SRC_DIR/XrPassthroughOcclusionInput.cpp"
 grep -n 'v0.1.2 filtered Environment Depth pass' "$SRC"
 grep -n 'QuestMrGetAndroidApp' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusion.cpp
 grep -n 'Quest3 MR Model Viewer v0.3.5: labelled room-spawned sticky tablet' "$SRC"
 grep -n 'MODEL VIEWER' "$SRC"
 grep -n 'IMPORT GLB' "$SRC"
+grep -n 'GRIP MOVE' "$SRC"
 grep -n 'HAS_BASE_COLOR_TEXTURE' "$SRC"
 grep -n 'pbrUv = fragmentUv' "$SRC"
 grep -n 'GL_SRGB8_ALPHA8' "$SRC"
 grep -n 'MODEL MOVE' "$SRC"
 grep -n 'RotationY(modelYaw)' "$SRC"
 grep -n 'uiTriggerPressed' "$SRC"
+grep -n 'panelGrabOffset' "$SRC"
+grep -n 'QuestMrTriggerDownForHand' "$INPUT"
+grep -n 'QuestMrGripDownForHand' "$INPUT"
+grep -n 'squeeze/value' "$INPUT"
 grep -n 'kMaxFileBytes = 192LL' "$SRC"
 grep -n 'preflight geometry=' "$SRC"
 grep -n 'kMaxTriangles = 2000000' "$SRC"
 grep -n 'kMaxTextureGpuBytes = 160ULL' "$SRC"
 grep -n 'safe boot ignored persisted GLB' "$SRC"
 grep -n 'peak-memory guard' "$SRC"
-grep -n 'v0.3.13 controller-oriented tablet placement' "$SRC"
 grep -n 'returnToViewer' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
 grep -n 'QUESTMR_V039_VISIBLE_PICKER' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
 grep -n 'QUESTMR_V041_CLEAR_STALE_IMPORT' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
