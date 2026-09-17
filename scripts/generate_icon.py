@@ -92,8 +92,8 @@ def draw_line(x0, y0, x1, y1, width, rgba):
                     put(xx, yy, rgba)
 
 
-# Transparent corners with a substantial safe-zone tile. No neon/glow.
-fill_rounded_rect(28, 28, 484, 484, 92, (24, 30, 39, 255))
+# Opaque full-square asset to match Meta's current 512x512 app-icon guidance.
+fill_rounded_rect(0, 0, 512, 512, 0, (24, 30, 39, 255))
 
 # A depth plane that disappears behind the model: tiny visual shorthand for MR occlusion.
 draw_line(76, 286, 205, 286, 9, (112, 139, 172, 255))
@@ -136,7 +136,7 @@ for y in range(out_h):
         j = (y * out_w + x) * 4
         raw[j:j+4] = bytes(v // 4 for v in sums)
 
-# PNG with RGBA8, no external dependencies.
+# PNG with RGBA8, no external dependencies. Pixels are fully opaque.
 scan = bytearray()
 stride = out_w * 4
 for y in range(out_h):
@@ -154,4 +154,4 @@ png += chunk(b'IEND', b'')
 
 OUT.parent.mkdir(parents=True, exist_ok=True)
 OUT.write_bytes(png)
-print(f'Generated Quest launcher icon: {OUT} ({len(png)} bytes, 512x512 RGBA)')
+print(f'Generated Quest launcher icon: {OUT} ({len(png)} bytes, 512x512 RGBA, opaque)')
