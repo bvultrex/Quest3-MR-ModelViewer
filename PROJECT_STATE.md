@@ -2,14 +2,14 @@
 
 **Project:** Quest3 MR Model Viewer  
 **Target:** Meta Quest 3 / Quest 3S standalone  
-**Current milestone:** v1.0.1 regression-fix candidate  
-**Date:** 2026-09-17
+**Current milestone:** v1.0.1 accepted final release  
+**Date:** 2026-09-18
 
 ## Release state
 
-The hardware-confirmed v0.3.15 baseline remains stable. The first v1.0.0 candidate was **not accepted** after Quest testing exposed three regressions: misleading raw metre scaling, UI labels disappearing after restart, and a white rendering artifact during a later import.
+**v1.0.1 is hardware-accepted on Quest 3 and is the final v1.0 release.**
 
-v1.0.1 addresses those regressions before final acceptance.
+The first v1.0.0 candidate was rejected after Quest testing exposed three regressions: misleading raw metre scaling, UI labels disappearing after restart, and a white rendering artifact during a later import. v1.0.1 corrected those issues and passed the final on-headset acceptance pass.
 
 ## Current architecture
 
@@ -31,8 +31,13 @@ v1.0.1 addresses those regressions before final acceptance.
 - Textured GLB rendering and lighting controls.
 - Direct one-hand model grab without snap.
 - Stable lower-detail rendering including the ~100k-triangle class.
+- UI labels survive close/reopen and scene restart.
+- Known-good GLBs import without the prior white artifact.
+- SIZE presets behave plausibly at FIT / 32MM / 75MM / 150MM / 300MM.
+- Manual SCALE returns SIZE to FIT.
+- Cold restart does not auto-load a prior GLB.
 
-## v1.0.1 changes awaiting hardware acceptance
+## v1.0.1 final changes
 
 - Raw `1 glTF unit = 1 metre` mode removed.
 - `SIZE` cycles FIT / 32MM / 75MM / 150MM / 300MM using the model's largest dimension.
@@ -57,14 +62,15 @@ v1.0.1 addresses those regressions before final acceptance.
 
 A 3.03M-triangle reference with three 2K textures reproducibly caused severe sustained XR/system lag despite passing memory preflight. Keep the 2M renderer ceiling unless a future renderer-side LOD/simplification strategy is added.
 
-## v1.0.1 acceptance
+## Acceptance result
 
-- Cold start and restart keep every tablet label visible.
-- Import a known small GLB with no white artifact.
-- Import status reaches READY.
-- SIZE visibly cycles FIT / 32MM / 75MM / 150MM / 300MM at plausible physical sizes.
-- Moving SCALE returns to FIT.
-- Tablet and model grip remain stable.
-- Cold restart still does not auto-load a prior GLB.
+Final Quest 3 acceptance passed:
 
-Only after these pass on Quest 3 should v1.0.1 be marked final/accepted.
+- labels remain visible across restart,
+- known-good GLB import reaches READY with no white artifact,
+- SIZE presets are physically plausible,
+- SCALE returns SIZE to FIT,
+- tablet and model grip remain stable,
+- cold restart remains safe and does not auto-load cached content.
+
+**Status: COMPLETE / ACCEPTED.** Future work belongs to v1.1 or later.
