@@ -1,0 +1,75 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.0 RC: explicit glTF real-world scale. glTF linear units are metres, so
+# REAL SCALE bypasses the automatic 34 cm fit transform and renders 1 unit = 1 m.
+old_mesh = '''    float center[3] = {0.0f, 0.0f, 0.0f};\n    float fitScale = 1.0f;\n    float metallicFactor = 1.0f;'''
+new_mesh = '''    float center[3] = {0.0f, 0.0f, 0.0f};\n    float fitScale = 1.0f;\n    float maxExtent = 0.0f;\n    float metallicFactor = 1.0f;'''
+if old_mesh not in text:
+    raise SystemExit('v1.0 real-scale mesh anchor not found')
+text = text.replace(old_mesh, new_mesh, 1)
+
+old_extent = '''    gQuestMrImportedMesh.fitScale = 0.34f / maxExtent;\n    gQuestMrImportedMesh.baseColorTexture = baseColorTexture;'''
+new_extent = '''    gQuestMrImportedMesh.fitScale = 0.34f / maxExtent;\n    gQuestMrImportedMesh.maxExtent = maxExtent;\n    gQuestMrImportedMesh.baseColorTexture = baseColorTexture;'''
+if old_extent not in text:
+    raise SystemExit('v1.0 extent storage anchor not found')
+text = text.replace(old_extent, new_extent, 1)
+
+old_state = '''    static Matrix4f modelGrabOffset;\n    static bool fullPbrMode = false;'''
+new_state = '''    static Matrix4f modelGrabOffset;\n    static bool realScaleMode = false;\n    static bool fullPbrMode = false;'''
+if old_state not in text:
+    raise SystemExit('v1.0 real-scale state anchor not found')
+text = text.replace(old_state, new_state, 1)
+
+old_row = '''            const bool modelMoveTouchNow =\n                std::abs(localX) < 0.120f && std::abs(localY - kModelMoveY) < 0.016f;\n            // GRIP MODEL is now a status/instruction row, not a toggle.\n            modelMoveMode = false;\n            modelMoveTouchPrev = modelMoveTouchNow;'''
+new_row = '''            const bool modelMoveTouchNow =\n                std::abs(localX) < 0.120f && std::abs(localY - kModelMoveY) < 0.016f;\n            if (modelMoveTouchNow && uiTriggerPressed && importedModelPlaced) {\n                realScaleMode = !realScaleMode;\n            }\n            modelMoveMode = false;\n            modelMoveTouchPrev = modelMoveTouchNow;'''
+if old_row not in text:
+    raise SystemExit('v1.0 real-scale button anchor not found')
+text = text.replace(old_row, new_row, 1)
+
+old_scale = '''                modelScaleSlider = std::max(\n                    0.0f,\n                    std::min(1.0f, (localX - modelMinX) / (2.0f * kSliderHalfWidth)));\n            }\n            if (uiTriggerDown && std::abs(localY - kModelRotateY) < 0.014f &&'''
+new_scale = '''                modelScaleSlider = std::max(\n                    0.0f,\n                    std::min(1.0f, (localX - modelMinX) / (2.0f * kSliderHalfWidth)));\n                realScaleMode = false;\n            }\n            if (uiTriggerDown && std::abs(localY - kModelRotateY) < 0.014f &&'''
+if old_scale not in text:
+    raise SystemExit('v1.0 scale slider anchor not found')
+text = text.replace(old_scale, new_scale, 1)
+
+old_reset = '''                modelScaleSlider = 0.272727f;\n                modelRotateSlider = 0.5f;\n                modelMoveMode = false;\n                fullPbrMode = false;'''
+new_reset = '''                modelScaleSlider = 0.272727f;\n                modelRotateSlider = 0.5f;\n                modelMoveMode = false;\n                realScaleMode = false;\n                fullPbrMode = false;'''
+if old_reset not in text:
+    raise SystemExit('v1.0 reset real-scale anchor not found')
+text = text.replace(old_reset, new_reset, 1)
+
+old_spawn = '''        modelScaleSlider = 0.272727f;\n        modelRotateSlider = 0.5f;\n        modelMoveMode = false;\n        modelGrabbed = false;'''
+new_spawn = '''        modelScaleSlider = 0.272727f;\n        modelRotateSlider = 0.5f;\n        modelMoveMode = false;\n        realScaleMode = false;\n        modelGrabbed = false;'''
+if old_spawn not in text:
+    raise SystemExit('v1.0 import reset real-scale anchor not found')
+text = text.replace(old_spawn, new_spawn, 1)
+
+old_matrix = '        const float fittedScale = gQuestMrImportedMesh.fitScale * modelScaleMultiplier;'
+new_matrix = '        const float fittedScale = realScaleMode ? 1.0f : (gQuestMrImportedMesh.fitScale * modelScaleMultiplier);'
+if old_matrix not in text:
+    raise SystemExit('v1.0 fitted scale anchor not found')
+text = text.replace(old_matrix, new_matrix, 1)
+
+old_radius = '''        const float grabScaleMultiplier = 0.25f + modelScaleSlider * 2.75f;\n        const float modelGrabRadius = 0.08f + 0.19f * grabScaleMultiplier;'''
+new_radius = '''        const float grabScaleMultiplier = 0.25f + modelScaleSlider * 2.75f;\n        const float displayedExtent = realScaleMode\n            ? gQuestMrImportedMesh.maxExtent\n            : (0.34f * grabScaleMultiplier);\n        const float modelGrabRadius = std::max(\n            0.10f, std::min(1.25f, 0.08f + displayedExtent * 0.55f));'''
+if old_radius not in text:
+    raise SystemExit('v1.0 real-scale grab radius anchor not found')
+text = text.replace(old_radius, new_radius, 1)
+
+if '"GRIP MODEL"' not in text:
+    raise SystemExit('v1.0 real-scale label anchor not found')
+text = text.replace('"GRIP MODEL"', '"REAL SCALE"', 1)
+
+old_pad = '''        drawUiRect(\n            modelMovePad,\n            modelGrabbed ? 0.34f : 0.16f,\n            modelGrabbed ? 0.30f : 0.34f,\n            modelGrabbed ? 0.18f : 0.58f);'''
+new_pad = '''        drawUiRect(\n            modelMovePad,\n            realScaleMode ? 0.16f : 0.16f,\n            realScaleMode ? 0.50f : 0.34f,\n            realScaleMode ? 0.32f : 0.58f);'''
+if old_pad not in text:
+    raise SystemExit('v1.0 real-scale pad anchor not found')
+text = text.replace(old_pad, new_pad, 1)
+
+cpp.write_text(text)
+print('v1.0 REAL SCALE: glTF 1 unit = 1 metre: ON')
+print('v1.0 manual SCALE exits REAL SCALE automatically: ON')
+print('v1.0 real-scale-aware model grab radius: ON')
