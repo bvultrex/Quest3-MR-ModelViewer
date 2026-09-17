@@ -1,0 +1,179 @@
+    gQuestMrImportedMesh.hasNormalTexture = hasNormalTexture;
+    gQuestMrImportedMesh.hasMetallicRoughnessTexture = hasMetallicRoughnessTexture;
+    gQuestMrImportedMesh.metallicFactor = std::max(0.0f, std::min(1.0f, metallicFactor));
+    gQuestMrImportedMesh.roughnessFactor = std::max(0.04f, std::min(1.0f, roughnessFactor));
+    gQuestMrImportedMesh.normalScale = std::max(0.0f, std::min(2.0f, normalScale));
+    gQuestMrImportedMesh.loadedStamp = stamp;
+    gQuestMrImportedMesh.loaded = true;
+
+    ALOGV(
+        "QuestMR: PBR GLB primitives=%zu skipped=%zu vertices=%zu indices=%zu base=%d normal=%d mr=%d",
+        acceptedPrimitives,
+        skippedPrimitives,
+        vertices.size(),
+        indices.size(),
+        int(hasBaseColorTexture),
+        int(hasNormalTexture),
+        int(hasMetallicRoughnessTexture));
+    return true;
+}
+
+'''
+text = text[:load_start] + pbr_loader + text[load_end:]
+
+# ---------------------------------------------------------------------------
+# 3) PBR uniforms and shader path. UI still uses the existing flat path.
+# ---------------------------------------------------------------------------
+old_uniform_tail = '''        EXPOSURE,
+        UI_MODE,
+        UI_COLOR,
+    };'''
+new_uniform_tail = '''        EXPOSURE,
+        UI_MODE,
+        UI_COLOR,
+        PBR_MODE,
+        CAMERA_WORLD_POSITION,
+        METALLIC_FACTOR,
+        ROUGHNESS_FACTOR,
+        NORMAL_SCALE,
+        HAS_BASE_COLOR_TEXTURE,
+        HAS_NORMAL_TEXTURE,
+        HAS_METALLIC_ROUGHNESS_TEXTURE,
+    };'''
+if old_uniform_tail not in text:
+    raise SystemExit('Uniform enum PBR anchor not found')
+text = text.replace(old_uniform_tail, new_uniform_tail, 1)
+
+old_program_tail = '''    {Uniform::Index::EXPOSURE, Uniform::Type::UNIFORM, "Exposure"},
+    {Uniform::Index::UI_MODE, Uniform::Type::UNIFORM, "UiMode"},
+    {Uniform::Index::UI_COLOR, Uniform::Type::UNIFORM, "UiColor"},
+};'''
+new_program_tail = '''    {Uniform::Index::EXPOSURE, Uniform::Type::UNIFORM, "Exposure"},
+    {Uniform::Index::UI_MODE, Uniform::Type::UNIFORM, "UiMode"},
+    {Uniform::Index::UI_COLOR, Uniform::Type::UNIFORM, "UiColor"},
+    {Uniform::Index::PBR_MODE, Uniform::Type::UNIFORM, "PbrMode"},
+    {Uniform::Index::CAMERA_WORLD_POSITION, Uniform::Type::UNIFORM, "CameraWorldPosition"},
+    {Uniform::Index::METALLIC_FACTOR, Uniform::Type::UNIFORM, "MetallicFactor"},
+    {Uniform::Index::ROUGHNESS_FACTOR, Uniform::Type::UNIFORM, "RoughnessFactor"},
+    {Uniform::Index::NORMAL_SCALE, Uniform::Type::UNIFORM, "NormalScale"},
+    {Uniform::Index::HAS_BASE_COLOR_TEXTURE, Uniform::Type::UNIFORM, "HasBaseColorTexture"},
+    {Uniform::Index::HAS_NORMAL_TEXTURE, Uniform::Type::UNIFORM, "HasNormalTexture"},
+    {Uniform::Index::HAS_METALLIC_ROUGHNESS_TEXTURE, Uniform::Type::UNIFORM, "HasMetallicRoughnessTexture"},
+};'''
+if old_program_tail not in text:
+    raise SystemExit('ProgramUniforms PBR anchor not found')
+text = text.replace(old_program_tail, new_program_tail, 1)
+
+old_vertex_shader_io = '''  in vec3 vertexPosition;
+  in vec4 vertexColor;
+  uniform mat4 ModelMatrix;'''
+new_vertex_shader_io = '''  in vec3 vertexPosition;
+  in vec4 vertexColor;
+  in vec2 vertexUv;
+  in vec3 vertexNormal;
+  uniform mat4 ModelMatrix;'''
+if old_vertex_shader_io not in text:
+    raise SystemExit('Vertex shader input anchor not found')
+text = text.replace(old_vertex_shader_io, new_vertex_shader_io, 1)
+
+old_vertex_shader_out = '''  out vec4 fragmentColor;
+  out highp vec4 cubeWorldPosition;
+  void main() {
+    cubeWorldPosition = ModelMatrix * vec4(vertexPosition, 1.0f);
+  \tgl_Position = sm.ProjectionMatrix[VIEW_ID] * sm.ViewMatrix[VIEW_ID] * cubeWorldPosition;
+  \tfragmentColor = vertexColor;
+  }'''
+new_vertex_shader_out = '''  out vec4 fragmentColor;
+  out highp vec4 cubeWorldPosition;
+  out highp vec2 fragmentUv;
+  out highp vec3 fragmentWorldNormal;
+  void main() {
+    cubeWorldPosition = ModelMatrix * vec4(vertexPosition, 1.0f);
+  \tgl_Position = sm.ProjectionMatrix[VIEW_ID] * sm.ViewMatrix[VIEW_ID] * cubeWorldPosition;
+  \tfragmentColor = vertexColor;
+    fragmentUv = vertexUv;
+    fragmentWorldNormal = mat3(ModelMatrix) * vertexNormal;
+  }'''
+if old_vertex_shader_out not in text:
+    raise SystemExit('Vertex shader output anchor not found')
+text = text.replace(old_vertex_shader_out, new_vertex_shader_out, 1)
+
+old_fragment_io = '''  in lowp vec4 fragmentColor;
+  in highp vec4 cubeWorldPosition;
+  uniform highp mat4 DepthViewMatrix[NUM_VIEWS];'''
+new_fragment_io = '''  in lowp vec4 fragmentColor;
+  in highp vec4 cubeWorldPosition;
+  in highp vec2 fragmentUv;
+  in highp vec3 fragmentWorldNormal;
+  uniform highp mat4 DepthViewMatrix[NUM_VIEWS];'''
+if old_fragment_io not in text:
+    raise SystemExit('Fragment shader input anchor not found')
+text = text.replace(old_fragment_io, new_fragment_io, 1)
+
+old_fragment_uniforms = '''  uniform highp float UiMode;
+  uniform highp vec3 UiColor;
+  layout(binding = 0) uniform highp sampler2DArray EnvironmentDepthTexture;'''
+new_fragment_uniforms = '''  uniform highp float UiMode;
+  uniform highp vec3 UiColor;
+  uniform highp float PbrMode;
+  uniform highp vec3 CameraWorldPosition;
+  uniform highp float MetallicFactor;
+  uniform highp float RoughnessFactor;
+  uniform highp float NormalScale;
+  uniform highp float HasBaseColorTexture;
+  uniform highp float HasNormalTexture;
+  uniform highp float HasMetallicRoughnessTexture;
+  uniform highp sampler2D Texture1;
+  uniform highp sampler2D Texture2;
+  uniform highp sampler2D Texture3;
+  layout(binding = 0) uniform highp sampler2DArray EnvironmentDepthTexture;'''
+if old_fragment_uniforms not in text:
+    raise SystemExit('Fragment shader uniform PBR anchor not found')
+text = text.replace(old_fragment_uniforms, new_fragment_uniforms, 1)
+
+lighting_start = text.find('// Flat geometric normal reconstructed from world-space derivatives.')
+lighting_end_marker = 'outColor = vec4(finalColor, fragmentColor.a * visibility);'
+lighting_end = text.find(lighting_end_marker, lighting_start)
+if lighting_start < 0 or lighting_end < 0:
+    raise SystemExit('Lighting output replacement anchors not found')
+lighting_end += len(lighting_end_marker)
+
+pbr_lighting = r'''// v0.3.6: authored normals + BaseColor / Normal / Metallic-Roughness textures.
+highp vec3 dpdx = dFdx(cubeWorldPosition.xyz);
+highp vec3 dpdy = dFdy(cubeWorldPosition.xyz);
+highp vec3 geometricNormal = normalize(cross(dpdx, dpdy));
+if (!gl_FrontFacing) {
+    geometricNormal = -geometricNormal;
+}
+
+highp vec3 surfaceNormal = geometricNormal;
+if (PbrMode > 0.5f && dot(fragmentWorldNormal, fragmentWorldNormal) > 0.0001f) {
+    surfaceNormal = normalize(fragmentWorldNormal);
+    if (!gl_FrontFacing) {
+        surfaceNormal = -surfaceNormal;
+    }
+}
+
+// glTF defines (0,0) at the image's upper-left. stb_image uploads its first
+// decoded row first, while GL samples T=0 from the bottom, so flip V here.
+highp vec2 pbrUv = vec2(fragmentUv.x, 1.0f - fragmentUv.y);
+
+if (PbrMode > 0.5f && HasNormalTexture > 0.5f) {
+    highp vec2 duvdx = dFdx(pbrUv);
+    highp vec2 duvdy = dFdy(pbrUv);
+    highp float det = duvdx.x * duvdy.y - duvdx.y * duvdy.x;
+    if (abs(det) > 0.0000001f) {
+        highp vec3 tangent = normalize((dpdx * duvdy.y - dpdy * duvdx.y) / det);
+        tangent = normalize(tangent - surfaceNormal * dot(surfaceNormal, tangent));
+        highp vec3 bitangent = normalize(cross(surfaceNormal, tangent)) * sign(det);
+        highp vec3 mapNormal = texture(Texture2, pbrUv).xyz * 2.0f - 1.0f;
+        mapNormal.xy *= NormalScale;
+        surfaceNormal = normalize(
+            tangent * mapNormal.x + bitangent * mapNormal.y + surfaceNormal * mapNormal.z);
+    }
+}
+
+highp vec4 materialColor = fragmentColor;
+if (PbrMode > 0.5f && HasBaseColorTexture > 0.5f) {
+    materialColor *= texture(Texture1, pbrUv);
+}
