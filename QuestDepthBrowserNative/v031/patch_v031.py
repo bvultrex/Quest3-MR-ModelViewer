@@ -51,15 +51,15 @@ bridge = bridge_path.read_text()
 # Imports + activity state.
 bridge = rep(
     bridge,
-    'import android.app.Presentation;\\n',
-    'import android.app.Presentation;\\nimport android.app.ActivityOptions;\\nimport android.content.Intent;\\n',
+    'import android.app.Presentation;\n',
+    'import android.app.Presentation;\nimport android.app.ActivityOptions;\nimport android.content.Intent;\n',
     'activity launch imports')
 bridge = rep(
     bridge,
-    '    private static Presentation presentation;\\n',
-    '    private static Presentation presentation; // legacy, unused from v0.3.1\\n'
-    '    private static Activity browserActivity;\\n'
-    '    private static float requestedAspect = 16.0f / 9.0f;\\n',
+    '    private static Presentation presentation;\n',
+    '    private static Presentation presentation; // legacy, unused from v0.3.1\n'
+    '    private static Activity browserActivity;\n'
+    '    private static float requestedAspect = 16.0f / 9.0f;\n',
     'browser activity state')
 
 # Replace Presentation producer with a real Activity launched on the VirtualDisplay.
@@ -113,7 +113,7 @@ new_block = '''                Intent intent = new Intent(activity, QuestDepthBr
 bridge = rep(bridge, old_block, new_block, 'replace Presentation with display Activity')
 
 # New activity attach/detach entry points.
-anchor = '    public static void pointer(final float normalizedX, final float normalizedY, final int action) {\\n'
+anchor = '    public static void pointer(final float normalizedX, final float normalizedY, final int action) {\n'
 attach = '''    public static void attachSurfaceActivity(final Activity activity) {
         MAIN.post(() -> {
             try {
@@ -172,10 +172,10 @@ bridge = rep(
 
 bridge = rep(
     bridge,
-    '            params.leftMargin = Math.max(0, (surfaceWidth - width) / 2);\\n'
-    '            params.topMargin = Math.max(0, (surfaceHeight - height) / 2);\\n',
-    '            params.leftMargin = Math.max(0, (safeWidth - width) / 2);\\n'
-    '            params.topMargin = Math.max(0, (safeHeight - height) / 2);\\n',
+    '            params.leftMargin = Math.max(0, (surfaceWidth - width) / 2);\n'
+    '            params.topMargin = Math.max(0, (surfaceHeight - height) / 2);\n',
+    '            params.leftMargin = Math.max(0, (safeWidth - width) / 2);\n'
+    '            params.topMargin = Math.max(0, (safeHeight - height) / 2);\n',
     'aspect margins against activity root')
 
 # IME now targets the real browser Activity window.
