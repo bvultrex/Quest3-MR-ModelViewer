@@ -1,14 +1,19 @@
-Quest Depth Browser Native v0.2.0
-
-This build is a render-path proof-of-concept.
+Quest Depth Browser Native v0.2.2
 
 Expected behavior:
 - Passthrough room visible.
-- A large Wikipedia browser panel appears about 1.15 m ahead.
-- Browser image should be compositor-sharp.
-- Real objects closer than the panel should occlude it using Environment Depth.
+- Browser image remains compositor-sharp.
+- Environment Depth still occludes the browser behind real objects.
+- The browser VirtualDisplay now uses a fullscreen/no-title display-aware Presentation to avoid cropping and density mismatches.
+- Initial panel width is 1.00 m; height follows the actual browser texture aspect ratio.
 
-Known v0.2.0 limitation:
-- XR controller clicks are not forwarded to the WebView yet.
-- The address bar/buttons visible inside the texture are diagnostic only for this build.
-- Panel position is fixed for the first native compositor test.
+Controls:
+- Right controller aim: point at the browser.
+- Right Trigger: click/tap inside Chromium.
+- Right Grip: grab and move the browser panel.
+- Right Grip + Trigger: resize mode. Move the controller up to enlarge and down to shrink.
+- Right Grip + right thumbstick up/down: secondary resize fallback.
+- Address bar: click, then type with a physical keyboard.
+- DE-QWERTZ remap remains enabled for the MX Keys path, including Y/Z and common German special characters.
+
+The sharp per-eye compositor quads and Environment Depth alpha-mask render path are unchanged from v0.2.0/v0.2.1.
