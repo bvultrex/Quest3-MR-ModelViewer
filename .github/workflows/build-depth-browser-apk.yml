@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '0.1.0'
+  APP_VERSION: '0.1.1'
 
 jobs:
   build:
@@ -65,9 +65,10 @@ jobs:
           python3 -m py_compile /tmp/patch_depth_browser.py
           python3 /tmp/patch_depth_browser.py
           grep -n 'com.bvultrex.questdepthbrowser' meta-spatial-samples/MediaPlayerSample/app/build.gradle.kts
+          grep -n 'versionName = "0.1.1"' meta-spatial-samples/MediaPlayerSample/app/build.gradle.kts
           grep -n 'QuestDepthBrowserActivity' meta-spatial-samples/MediaPlayerSample/app/src/main/AndroidManifest.xml
           grep -n 'EnvironmentDepthMode.OCCLUSION' meta-spatial-samples/MediaPlayerSample/app/src/main/java/com/meta/spatial/samples/mediaplayersample/QuestDepthBrowserActivity.kt
-          grep -n 'PanelRenderMode.Mesh' meta-spatial-samples/MediaPlayerSample/app/src/main/java/com/meta/spatial/samples/mediaplayersample/QuestDepthBrowserActivity.kt
+          grep -n 'PanelRenderMode.Layer' meta-spatial-samples/MediaPlayerSample/app/src/main/java/com/meta/spatial/samples/mediaplayersample/QuestDepthBrowserActivity.kt
 
       - name: Build debug APK
         working-directory: meta-spatial-samples/MediaPlayerSample
