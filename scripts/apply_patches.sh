@@ -35,6 +35,7 @@ run_fragmented_patch patch_v043
 run_fragmented_patch patch_v044
 run_fragmented_patch patch_v045
 run_fragmented_patch patch_v046
+run_fragmented_patch patch_v047
 
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
@@ -45,7 +46,10 @@ grep -n 'Quest3 MR Model Viewer v0.3.5: labelled room-spawned sticky tablet' "$S
 grep -n 'MODEL VIEWER' "$SRC"
 grep -n 'IMPORT GLB' "$SRC"
 grep -n 'GRIP MOVE' "$SRC"
-grep -n 'REAL SCALE' "$SRC"
+grep -n 'physicalSizePreset' "$SRC"
+grep -n '32MM' "$SRC"
+grep -n 'QuestMrInvalidateAllUiTextMeshes' "$SRC"
+grep -n 'QuestMrDestroyAllUiTextMeshes' "$SRC"
 grep -n 'HAS_BASE_COLOR_TEXTURE' "$SRC"
 grep -n 'pbrUv = fragmentUv' "$SRC"
 grep -n 'GL_SRGB8_ALPHA8' "$SRC"
@@ -53,7 +57,6 @@ grep -n 'RotationY(modelYaw)' "$SRC"
 grep -n 'uiTriggerPressed' "$SRC"
 grep -n 'panelGrabOffset' "$SRC"
 grep -n 'modelGrabOffset' "$SRC"
-grep -n 'realScaleMode ? 1.0f' "$SRC"
 grep -n 'QuestMrBuildImportStatusMeshes' "$SRC"
 grep -n 'READY' "$SRC"
 grep -n 'QuestMR v0.3.15 direct model grab' "$SRC"
