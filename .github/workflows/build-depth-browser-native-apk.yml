@@ -71,6 +71,8 @@ jobs:
           python3 QuestDepthBrowserNative/v025/patch_v025.py
           python3 -m py_compile QuestDepthBrowserNative/v026/patch_v026.py
           python3 QuestDepthBrowserNative/v026/patch_v026.py
+          python3 -m py_compile QuestDepthBrowserNative/v026/patch_v026b.py
+          python3 QuestDepthBrowserNative/v026/patch_v026b.py
 
           ROOT=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion
           SRC="$ROOT/Src/XrPassthroughOcclusion.cpp"
@@ -86,6 +88,8 @@ jobs:
           grep -n 'resizeCorner' "$NATIVE"
           grep -n 'centered 84% capture-safe viewport' "$NATIVE"
           grep -n 'safeScale = 0.84f' "$JAVA"
+          grep -n 'Gravity.TOP | Gravity.LEFT' "$JAVA"
+          grep -n 'params.leftMargin' "$JAVA"
           grep -n 'showQuestKeyboard' "$JAVA"
           grep -n 'InputMethodManager.SHOW_IMPLICIT' "$JAVA"
           grep -n 'document.activeElement' "$JAVA"
