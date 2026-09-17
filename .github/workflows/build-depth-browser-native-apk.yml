@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '0.3.0'
+  APP_VERSION: '0.3.1'
   APP_ID: 'com.bvultrex.questdepthbrowser.native'
   APP_LABEL: 'Quest Depth Browser Native'
 
@@ -77,6 +77,8 @@ jobs:
           python3 QuestDepthBrowserNative/v027/patch_v027.py
           python3 -m py_compile QuestDepthBrowserNative/v030/patch_v030.py
           python3 QuestDepthBrowserNative/v030/patch_v030.py
+          python3 -m py_compile QuestDepthBrowserNative/v031/patch_v031.py
+          python3 QuestDepthBrowserNative/v031/patch_v031.py
 
           ROOT=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion
           SRC="$ROOT/Src/XrPassthroughOcclusion.cpp"
@@ -95,9 +97,11 @@ jobs:
           grep -n 'virtualDepth = virtualDepth \* 0.5 + 0.5' "$NATIVE"
           grep -n 'SurfaceTexture crop matrix' "$NATIVE" || true
           grep -n 'safeScale = 1.0f' "$JAVA"
-          grep -n 'window.setLayout(surfaceWidth, surfaceHeight)' "$JAVA"
+          grep -n 'QuestDepthBrowserSurfaceActivity' "$JAVA"
+          grep -n 'setLaunchDisplayId' "$JAVA"
           grep -n 'Gravity.TOP | Gravity.LEFT' "$JAVA"
           grep -n '/user/hand/left/input/squeeze/value' "$INPUT"
+          grep -n 'GL_LINEAR' "$NATIVE"
           grep -n 'browserActiveHand' "$SRC"
           grep -n 'params.leftMargin' "$JAVA"
           grep -n 'showQuestKeyboard' "$JAVA"
@@ -134,6 +138,7 @@ jobs:
           cp "$ROOT/Src/XrPassthroughOcclusionInput.cpp" dist/XrPassthroughOcclusionInput.patched.cpp
           cp "$ROOT/java/com/oculus/xrpassthroughocclusion/QuestDepthBrowserBridge.java" dist/QuestDepthBrowserBridge.patched.java
           cp "$ROOT/java/com/oculus/xrpassthroughocclusion/MainNativeActivity.java" dist/MainNativeActivity.patched.java
+          cp "$ROOT/java/com/oculus/xrpassthroughocclusion/QuestDepthBrowserSurfaceActivity.java" dist/QuestDepthBrowserSurfaceActivity.patched.java
           (cd dist && sha256sum "Quest-Depth-Browser-Native-v${APP_VERSION}-debug.apk" > SHA256SUMS.txt)
           ls -lh dist
 
