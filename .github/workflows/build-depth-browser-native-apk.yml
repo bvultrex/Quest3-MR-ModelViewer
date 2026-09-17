@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '0.2.4'
+  APP_VERSION: '0.2.5'
   APP_ID: 'com.bvultrex.questdepthbrowser.native'
   APP_LABEL: 'Quest Depth Browser Native'
 
@@ -67,6 +67,8 @@ jobs:
           python3 QuestDepthBrowserNative/v023/patch_v023.py
           python3 -m py_compile QuestDepthBrowserNative/v024/patch_v024.py
           python3 QuestDepthBrowserNative/v024/patch_v024.py
+          python3 -m py_compile QuestDepthBrowserNative/v025/patch_v025.py
+          python3 QuestDepthBrowserNative/v025/patch_v025.py
 
           ROOT=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion
           SRC="$ROOT/Src/XrPassthroughOcclusion.cpp"
@@ -79,12 +81,14 @@ jobs:
           grep -n 'rightGripState.currentState' "$SRC"
           grep -n 'browserGripAction' "$INPUT"
           grep -n 'resizeCorner' "$NATIVE"
-          grep -n 'VirtualDisplay owns the requested aspect ratio' "$NATIVE"
-          grep -n 'glUniform4f(gBrowserContentRectLocation, 0.0f, 0.0f, 1.0f, 1.0f)' "$NATIVE"
+          grep -n 'fixed producer surface + centered Android viewport' "$NATIVE"
+          grep -n 'contentOffsetX' "$NATIVE"
           grep -n 'Native compositor-space frame' "$NATIVE"
-          grep -n 'virtualDisplay.resize' "$JAVA"
-          grep -n 'sourceSurfaceTexture.setDefaultBufferSize' "$JAVA"
-          grep -n 'settings.setLoadWithOverviewMode(true)' "$JAVA"
+          grep -n 'FrameLayout.LayoutParams params = new FrameLayout.LayoutParams' "$JAVA"
+          grep -n "window.dispatchEvent(new Event('resize'))" "$JAVA"
+          grep -n 'settings.setLoadWithOverviewMode(false)' "$JAVA"
+          ! grep -q 'virtualDisplay.resize' "$JAVA"
+          ! grep -q 'sourceSurfaceTexture.setDefaultBufferSize(width, height)' "$JAVA"
           grep -n 'Adressleiste einklappen' "$JAVA"
           grep -n 'germanTextFor' "$JAVA"
           grep -n 'dispatchKeyEvent' "$ACTIVITY"
