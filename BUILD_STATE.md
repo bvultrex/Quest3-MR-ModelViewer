@@ -1,6 +1,6 @@
 # Build architecture state
 
-Current app baseline: **v1.0.1 regression-fix candidate**
+Current app baseline: **v1.0.1 accepted final release**
 
 The GitHub Actions workflow is intentionally thin. Build logic lives in `scripts/`:
 
@@ -35,7 +35,7 @@ Either controller can point and trigger-click the UI. Trigger-hold operates slid
 
 Default FIT scale targets about 34 cm maximum extent before the manual SCALE multiplier.
 
-v1.0.1 no longer assumes source GLB coordinates represent intended metres. `SIZE` sets the model's largest displayed dimension explicitly:
+v1.0.1 does not assume source GLB coordinates represent intended metres. `SIZE` sets the model's largest displayed dimension explicitly:
 
 - FIT
 - 32 mm
@@ -58,6 +58,17 @@ v1.0.1 therefore:
 
 Never preserve raw VAO/VBO/IBO/texture object names across a scene/EGL lifecycle boundary.
 
+## Hardware acceptance
+
+Quest 3 final acceptance confirms:
+
+- UI text remains present after app restart,
+- the prior white import artifact is no longer observed with known-good GLBs,
+- SIZE presets behave plausibly,
+- SCALE returns physical SIZE to FIT,
+- tablet/model grabbing remains stable,
+- safe cold start remains intact.
+
 ## Hardware findings / safety envelope
 
 Quest 3 confirms Environment Depth, GLB picker, PBR, dual-controller UI, direct tablet/model grip and smooth ~100k-class models. A 3.03M-triangle model causes severe sustained XR/system lag.
@@ -65,3 +76,5 @@ Quest 3 confirms Environment Depth, GLB picker, PBR, dual-controller UI, direct 
 Current guards: 192 MiB GLB, 3M vertices, 12M indices, **2M triangles**, 4096px texture edge, 160 MiB mipmapped textures, 256 MiB estimated GPU resources, 384 MiB estimated CPU import working set.
 
 Do not raise the 2M ceiling without LOD, simplification or another renderer-side strategy.
+
+**Frozen v1.0 baseline: v1.0.1 accepted final.** Any new feature work should branch from this state as v1.1+ rather than modifying the accepted v1.0 baseline conceptually.
