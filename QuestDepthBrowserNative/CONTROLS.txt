@@ -1,23 +1,25 @@
-Quest Depth Browser Native v0.2.3
+Quest Depth Browser Native v0.2.4
 
 Expected behavior:
 - Passthrough room visible.
-- Browser image remains compositor-sharp.
+- Browser remains compositor-sharp.
 - Environment Depth still occludes the browser behind real objects.
-- Default browser window is now 16:9 and Chromium reflows when the window aspect ratio changes.
-- The 3200x2000 backing texture remains fixed for sharpness, while a dynamic active browser viewport is sampled into the spatial window.
-- Four subtle resize corners are visible on the browser window.
-- The URL/navigation bar stays pinned to the top edge and can be collapsed with ^. A small down-chevron restores it.
+- Default browser producer and OpenXR swapchain now start at true 3200x1800 (16:9).
+- The old centered viewport + second shader crop path is removed.
+- Aspect changes resize the VirtualDisplay itself so Chromium reflows at the actual spatial-window aspect.
+- A subtle native OpenXR border/corner marker is rendered outside the Android UI. This reveals the real quad bounds even if WebView geometry is wrong.
+- Sticky Quest-style URL/navigation bar and DE-QWERTZ remain enabled.
 
 Controls:
 - Right controller aim: point at the browser.
 - Right Trigger: click/tap inside Chromium.
-- Right Grip on the browser body: grab and move the whole browser window.
-- Right Grip on any visible corner: drag that corner to resize width and height independently. The opposite corner remains anchored.
-- Joystick scaling is no longer used for window size.
-- Address bar: click, then type with a physical keyboard.
-- DE-QWERTZ remap remains enabled for the MX Keys path, including Y/Z and common German special characters.
-- ^ in the top-right of the toolbar: collapse the sticky URL/navigation bar.
-- Small down-chevron at the top center: restore the URL/navigation bar.
+- Right Grip on browser body: grab and move the whole window.
+- Right Grip on a corner: drag that corner to resize width and height independently; opposite corner remains anchored.
+- Address bar: click, then type with the physical keyboard.
+- DE-QWERTZ remap remains enabled for the MX Keys path.
+- ^ collapses the sticky URL/navigation bar; the small down-chevron restores it.
 
-The sharp per-eye compositor quads and Environment Depth alpha-mask render path remain unchanged from the validated native compositor core.
+v0.2.4 geometry checkpoint:
+- The complete Wikipedia page and toolbar should fit inside the native border.
+- The native border should itself appear as a clean 16:9 rectangle at startup.
+- Sharp per-eye compositor quads + Environment Depth alpha-mask core are otherwise unchanged.
