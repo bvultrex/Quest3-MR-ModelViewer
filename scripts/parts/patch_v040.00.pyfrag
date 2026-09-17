@@ -1,0 +1,94 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v0.3.10 emergency safe boot: never auto-load a persisted GLB on process start.
+old_poll = r'''bool QuestMrPollImportFile(bool& changed) {
+    changed = false;
+    const std::string path = QuestMrImportPath();
+    if (path.empty()) {
+        return false;
+    }
+    struct stat st{};
+    if (stat(path.c_str(), &st) != 0 || st.st_size <= 0) {
+        return false;
+    }
+    const long long stamp = (static_cast<long long>(st.st_mtime) << 32) ^ static_cast<long long>(st.st_size);
+    if (stamp == gQuestMrImportedMesh.loadedStamp) {
+        return gQuestMrImportedMesh.loaded;
+    }
+    changed = true;
+    const bool ok = QuestMrLoadGlb(path, stamp);
+    if (!ok) {
+        gQuestMrImportedMesh.loadedStamp = stamp;
+    }
+    gQuestMrImportState = ok ? 2 : 3;
+    return ok;
+}
+'''
+new_poll = r'''bool QuestMrPollImportFile(bool& changed) {
+    changed = false;
+    const std::string path = QuestMrImportPath();
+
+    // Emergency safe-boot latch. A GLB left in app-private storage from a
+    // previous run must never be imported just because the process started.
+    // The first poll establishes the baseline only. A later file change from
+    // an explicit picker action is required before loading.
+    static bool baselineInitialized = false;
+
+    if (path.empty()) {
+        baselineInitialized = true;
+        return false;
+    }
+
+    struct stat st{};
+    const bool exists = stat(path.c_str(), &st) == 0 && st.st_size > 0;
+    if (!baselineInitialized) {
+        baselineInitialized = true;
+        if (exists) {
+            const long long baselineStamp =
+                (static_cast<long long>(st.st_mtime) << 32) ^
+                static_cast<long long>(st.st_size);
+            gQuestMrImportedMesh.loadedStamp = baselineStamp;
+            ALOGV("QuestMR: safe boot ignored persisted GLB stamp=%lld", baselineStamp);
+        }
+        return false;
+    }
+
+    if (!exists) {
+        return false;
+    }
+
+    const long long stamp =
+        (static_cast<long long>(st.st_mtime) << 32) ^
+        static_cast<long long>(st.st_size);
+    if (stamp == gQuestMrImportedMesh.loadedStamp) {
+        return gQuestMrImportedMesh.loaded;
+    }
+
+    changed = true;
+    const bool ok = QuestMrLoadGlb(path, stamp);
+    if (!ok) {
+        gQuestMrImportedMesh.loadedStamp = stamp;
+    }
+    gQuestMrImportState = ok ? 2 : 3;
+    return ok;
+}
+'''
+if old_poll not in text:
+    raise SystemExit('v0.3.10 poll anchor not found')
+text = text.replace(old_poll, new_poll, 1)
+
+# Temporary synchronous-import guard. The 3M reference remains our target,
+# but loading it on the render thread is not safe enough yet.
+old_tri = 'constexpr size_t kMaxTriangles = 4000000;'
+new_tri = 'constexpr size_t kMaxTriangles = 1000000;'
+if old_tri not in text:
+    raise SystemExit('v0.3.10 triangle guard anchor not found')
+text = text.replace(old_tri, new_tri, 1)
+text = text.replace('QuestMR: preflight rejected >4M triangles', 'QuestMR: preflight rejected >1M triangles in synchronous safe mode', 1)
+
+cpp.write_text(text)
+print('v0.3.10 emergency safe boot: persisted GLB auto-load DISABLED')
+print('v0.3.10 synchronous import cap: 1,000,000 triangles')
