@@ -1,0 +1,194 @@
+#include "QuestDepthBrowserNative.h"
+
+#if defined(ANDROID)
+#include <android/log.h>
+#endif
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+
+#define QDB_TAG "QuestDepthBrowserNative"
+#if defined(ANDROID)
+#define QDB_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, QDB_TAG, __VA_ARGS__)
+#define QDB_LOGI(...) __android_log_print(ANDROID_LOG_INFO, QDB_TAG, __VA_ARGS__)
+#else
+#define QDB_LOGE(...)
+#define QDB_LOGI(...)
+#endif
+
+namespace {
+const char* kVertexShader = R"GLSL(#version 300 es
+precision highp float;
+out vec2 vUv;
+void main() {
+    vec2 p;
+    if (gl_VertexID == 0) p = vec2(-1.0, -1.0);
+    else if (gl_VertexID == 1) p = vec2(1.0, -1.0);
+    else if (gl_VertexID == 2) p = vec2(-1.0, 1.0);
+    else p = vec2(1.0, 1.0);
+    gl_Position = vec4(p, 0.0, 1.0);
+    vUv = p * 0.5 + 0.5;
+}
+)GLSL";
+
+const char* kFragmentShader = R"GLSL(#version 300 es
+#extension GL_OES_EGL_image_external_essl3 : require
+precision highp float;
+precision highp sampler2DArray;
+uniform samplerExternalOES uBrowserTexture;
+uniform mat4 uBrowserTextureTransform;
+uniform sampler2DArray uEnvironmentDepthTexture;
+uniform mat4 uDepthView;
+uniform mat4 uDepthProjection;
+uniform int uEye;
+uniform float uHasDepth;
+in vec2 vUv;
+out vec4 outColor;
+
+const float PANEL_WIDTH = 1.45;
+const float PANEL_HEIGHT = 0.90625;
+const float PANEL_Y = -0.02;
+const float PANEL_Z = -1.15;
+
+void main() {
+    vec4 transformedUv = uBrowserTextureTransform * vec4(vUv, 0.0, 1.0);
+    vec4 browser = texture(uBrowserTexture, transformedUv.xy);
+
+    float visibility = 1.0;
+    if (uHasDepth > 0.5) {
+        vec3 worldPosition = vec3(
+            (vUv.x - 0.5) * PANEL_WIDTH,
+            PANEL_Y + (vUv.y - 0.5) * PANEL_HEIGHT,
+            PANEL_Z);
+
+        vec4 depthCameraPosition =
+            uDepthProjection * uDepthView * vec4(worldPosition, 1.0);
+
+        if (abs(depthCameraPosition.w) > 0.00001) {
+            vec2 depthUv = depthCameraPosition.xy / depthCameraPosition.w;
+            depthUv = depthUv * 0.5 + 0.5;
+            float virtualDepth = depthCameraPosition.z / depthCameraPosition.w;
+
+            if (depthUv.x >= 0.0 && depthUv.x <= 1.0 &&
+                depthUv.y >= 0.0 && depthUv.y <= 1.0) {
+                ivec3 depthSize = textureSize(uEnvironmentDepthTexture, 0);
+                vec2 texel = 1.0 / vec2(depthSize.xy);
+                float distanceHint = max(abs(depthCameraPosition.w), 0.25);
+                float projectedBias = clamp(
+                    0.00022 + distanceHint * 0.00016,
+                    0.00022,
+                    0.00120);
+                float derivativeWidth = clamp(
+                    fwidth(virtualDepth) * 1.35,
+                    0.00030,
+                    0.00250);
+
+                float visibilitySum = 0.0;
+                float weightSum = 0.0;
+                float centerDepth = texture(
+                    uEnvironmentDepthTexture,
+                    vec3(depthUv, float(uEye))).r;
+
+                for (int y = -1; y <= 1; ++y) {
+                    for (int x = -1; x <= 1; ++x) {
+                        vec2 tapUv = clamp(
+                            depthUv + vec2(float(x), float(y)) * texel,
+                            vec2(0.0),
+                            vec2(1.0));
+                        float realDepth = texture(
+                            uEnvironmentDepthTexture,
+                            vec3(tapUv, float(uEye))).r;
+                        float wx = (x == 0) ? 2.0 : 1.0;
+                        float wy = (y == 0) ? 2.0 : 1.0;
+                        float weight = wx * wy;
+                        float depthDelta = realDepth - virtualDepth - projectedBias;
+                        float discontinuity = abs(realDepth - centerDepth);
+                        float tapWidth = clamp(
+                            derivativeWidth + discontinuity * 0.12,
+                            0.00040,
+                            0.00450);
+                        float tapVisibility = smoothstep(-tapWidth, tapWidth, depthDelta);
+                        visibilitySum += tapVisibility * weight;
+                        weightSum += weight;
+                    }
+                }
+
+                visibility = clamp(visibilitySum / max(weightSum, 0.0001), 0.0, 1.0);
+                visibility = smoothstep(0.08, 0.92, visibility);
+            }
+        }
+    }
+
+    outColor = vec4(browser.rgb, browser.a * visibility);
+}
+)GLSL";
+
+bool CheckXr(const char* label, XrResult result) {
+    if (XR_FAILED(result)) {
+        QDB_LOGE("%s failed: %d", label, int(result));
+        return false;
+    }
+    return true;
+}
+} // namespace
+
+GLuint QuestDepthBrowserNative::CompileShader(GLenum type, const char* source) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &source, nullptr);
+    glCompileShader(shader);
+    GLint compiled = GL_FALSE;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+    if (compiled != GL_TRUE) {
+        GLint length = 0;
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
+        std::vector<char> log(std::max(1, length));
+        glGetShaderInfoLog(shader, length, nullptr, log.data());
+        QDB_LOGE("shader compile failed: %s", log.data());
+        glDeleteShader(shader);
+        return 0;
+    }
+    return shader;
+}
+
+bool QuestDepthBrowserNative::CreateProgram() {
+    GLuint vertex = CompileShader(GL_VERTEX_SHADER, kVertexShader);
+    GLuint fragment = CompileShader(GL_FRAGMENT_SHADER, kFragmentShader);
+    if (vertex == 0 || fragment == 0) {
+        if (vertex != 0) glDeleteShader(vertex);
+        if (fragment != 0) glDeleteShader(fragment);
+        return false;
+    }
+
+    Program = glCreateProgram();
+    glAttachShader(Program, vertex);
+    glAttachShader(Program, fragment);
+    glLinkProgram(Program);
+    glDeleteShader(vertex);
+    glDeleteShader(fragment);
+
+    GLint linked = GL_FALSE;
+    glGetProgramiv(Program, GL_LINK_STATUS, &linked);
+    if (linked != GL_TRUE) {
+        GLint length = 0;
+        glGetProgramiv(Program, GL_INFO_LOG_LENGTH, &length);
+        std::vector<char> log(std::max(1, length));
+        glGetProgramInfoLog(Program, length, nullptr, log.data());
+        QDB_LOGE("program link failed: %s", log.data());
+        glDeleteProgram(Program);
+        Program = 0;
+        return false;
+    }
+
+    BrowserTextureLocation = glGetUniformLocation(Program, "uBrowserTexture");
+    BrowserTextureTransformLocation = glGetUniformLocation(Program, "uBrowserTextureTransform");
+    DepthTextureLocation = glGetUniformLocation(Program, "uEnvironmentDepthTexture");
+    DepthViewLocation = glGetUniformLocation(Program, "uDepthView");
+    DepthProjectionLocation = glGetUniformLocation(Program, "uDepthProjection");
+    EyeLocation = glGetUniformLocation(Program, "uEye");
+    HasDepthLocation = glGetUniformLocation(Program, "uHasDepth");
+    return true;
+}
+
+jclass QuestDepthBrowserNative::LoadBridgeClass(JNIEnv* env, jobject activity) {
+    jclass activityClass = env->GetObjectClass(activity);
