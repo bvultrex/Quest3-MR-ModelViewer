@@ -2,7 +2,7 @@
 
 Standalone mixed-reality GLB viewer for Meta Quest 3 / Quest 3S.
 
-## v1.0.1 release candidate
+## v1.0.1 — accepted final release
 
 The viewer runs natively on Quest using Android + C++ OpenXR and Meta Environment Depth. It is built from Meta OpenXR SDK v85 `XrPassthroughOcclusion` through a reproducible GitHub Actions pipeline.
 
@@ -25,7 +25,9 @@ The viewer runs natively on Quest using Android + C++ OpenXR and Meta Environmen
 
 ### Hardware-tested behavior
 
-Quest 3 hardware testing confirmed passthrough, Environment Depth occlusion, dual-controller tablet interaction, GLB picker round trips, textured PBR rendering, direct tablet/model grip and smooth operation with validated lower-detail models including the ~100k-triangle class.
+Quest 3 hardware testing confirmed passthrough, Environment Depth occlusion, dual-controller tablet interaction, GLB picker round trips, textured PBR rendering, direct tablet/model grip, physical SIZE presets, stable restart/UI lifecycle behavior, and smooth operation with validated lower-detail models including the ~100k-triangle class.
+
+The final v1.0.1 acceptance pass also confirmed that UI labels survive app restart, known-good GLBs import without the previous white artifact, SIZE presets behave plausibly, SCALE returns SIZE to FIT, and cold restart still does not auto-load a prior GLB.
 
 A 3.03M-triangle reference reproducibly caused severe XR/system lag in the current renderer. v1 keeps a conservative **2,000,000 triangle import ceiling**.
 
