@@ -1,0 +1,10 @@
+    drawUiRect(resetPad, 0.22f, 0.24f, 0.28f);'''
+if old_reset_draw not in text:
+    raise SystemExit('Reset render anchor not found')
+text = text.replace(old_reset_draw, new_reset_draw, 1)
+
+cpp.write_text(text)
+print('v0.3.7 texture orientation + model controls: ON')
+print('v0.3.7 BaseColor sRGB upload: ON')
+print('v0.3.7 PBR FULL diagnostic toggle: ON')
+print('v0.3.7 MODEL MOVE / SCALE / ROTATE / RESET ALL: ON')
