@@ -1,0 +1,57 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# 1) Correct glTF texture orientation and BaseColor color space.
+old_tex = '''    GL(glTexImage2D(\n        GL_TEXTURE_2D,\n        0,\n        GL_RGBA8,\n        width,\n        height,\n        0,\n        GL_RGBA,\n        GL_UNSIGNED_BYTE,\n        pixels));'''
+new_tex = '''    const bool srgbTexture = label != nullptr && std::string(label) == "baseColor";\n    const GLint internalFormat = srgbTexture ? GL_SRGB8_ALPHA8 : GL_RGBA8;\n    GL(glTexImage2D(\n        GL_TEXTURE_2D,\n        0,\n        internalFormat,\n        width,\n        height,\n        0,\n        GL_RGBA,\n        GL_UNSIGNED_BYTE,\n        pixels));'''
+if old_tex not in text:
+    raise SystemExit('Texture upload anchor not found')
+text = text.replace(old_tex, new_tex, 1)
+
+old_uv = '''// glTF defines (0,0) at the image's upper-left. stb_image uploads its first\n// decoded row first, while GL samples T=0 from the bottom, so flip V here.\nhighp vec2 pbrUv = vec2(fragmentUv.x, 1.0f - fragmentUv.y);'''
+new_uv = '''// cgltf supplies glTF TEXCOORD_0 and stb_image uploads the encoded image rows\n// in matching order. Do not mirror V here: doing so remaps a packed atlas and\n// produces the patchwork texture corruption seen on Quest hardware.\nhighp vec2 pbrUv = fragmentUv;'''
+if old_uv not in text:
+    raise SystemExit('PBR UV anchor not found')
+text = text.replace(old_uv, new_uv, 1)
+
+# 2) Extend static state with model controls and a diagnostic full-PBR toggle.
+old_state = '''    static bool resetTouchPrev = false;\n    static Matrix4f importedModelRoot;\n    static bool importedModelPlaced = false;'''
+new_state = '''    static bool resetTouchPrev = false;\n    static bool materialTouchPrev = false;\n    static bool modelMoveTouchPrev = false;\n    static bool fullPbrMode = false;\n    static bool modelMoveMode = false;\n    static float modelScaleSlider = 0.272727f; // 1.0x in the 0.25x..3.0x range.\n    static float modelRotateSlider = 0.5f;     // 0 degrees in the -180..180 range.\n    static Matrix4f importedModelRoot;\n    static Matrix4f importedModelDefaultRoot;\n    static bool importedModelPlaced = false;'''
+if old_state not in text:
+    raise SystemExit('Render state anchor not found')
+text = text.replace(old_state, new_state, 1)
+
+old_constants = '''    constexpr float kSliderStep = 0.034f;\n    constexpr float kPanelSpawnDistance = -0.70f;\n    constexpr float kPanelSpawnY = -0.055f;'''
+new_constants = '''    constexpr float kSliderStep = 0.034f;\n    constexpr float kMaterialY = -0.123f;\n    constexpr float kModelMoveY = -0.158f;\n    constexpr float kModelScaleY = -0.192f;\n    constexpr float kModelRotateY = -0.226f;\n    constexpr float kResetY = -0.266f;\n    constexpr float kPanelSpawnDistance = -0.70f;\n    constexpr float kPanelSpawnY = -0.055f;'''
+if old_constants not in text:
+    raise SystemExit('Render constants anchor not found')
+text = text.replace(old_constants, new_constants, 1)
+
+# 3) Add material toggle + model move/scale/rotate controls.
+old_interaction = '''            const bool resetTouchNow =\n                std::abs(localX) < 0.058f && std::abs(localY + 0.145f) < 0.018f;\n            if (resetTouchNow && !resetTouchPrev) {\n                for (int i = 0; i < 6; ++i) {\n                    lightSliders[i] = defaultLightSliders[i];\n                }\n            }\n            resetTouchPrev = resetTouchNow;\n\n            const bool pinTouchNow ='''
+new_interaction = '''            const bool materialTouchNow =\n                std::abs(localX) < 0.120f && std::abs(localY - kMaterialY) < 0.016f;\n            if (materialTouchNow && !materialTouchPrev) {\n                fullPbrMode = !fullPbrMode;\n            }\n            materialTouchPrev = materialTouchNow;\n\n            const bool modelMoveTouchNow =\n                std::abs(localX) < 0.120f && std::abs(localY - kModelMoveY) < 0.016f;\n            if (modelMoveTouchNow && !modelMoveTouchPrev && importedModelPlaced) {\n                modelMoveMode = !modelMoveMode;\n            }\n            modelMoveTouchPrev = modelMoveTouchNow;\n\n            const float modelMinX = kSliderCenterX - kSliderHalfWidth;\n            const float modelMaxX = kSliderCenterX + kSliderHalfWidth;\n            if (std::abs(localY - kModelScaleY) < 0.014f &&\n                localX >= modelMinX - 0.010f && localX <= modelMaxX + 0.010f) {\n                modelScaleSlider = std::max(\n                    0.0f,\n                    std::min(1.0f, (localX - modelMinX) / (2.0f * kSliderHalfWidth)));\n            }\n            if (std::abs(localY - kModelRotateY) < 0.014f &&\n                localX >= modelMinX - 0.010f && localX <= modelMaxX + 0.010f) {\n                modelRotateSlider = std::max(\n                    0.0f,\n                    std::min(1.0f, (localX - modelMinX) / (2.0f * kSliderHalfWidth)));\n            }\n\n            const bool resetTouchNow =\n                std::abs(localX) < 0.070f && std::abs(localY - kResetY) < 0.018f;\n            if (resetTouchNow && !resetTouchPrev) {\n                for (int i = 0; i < 6; ++i) {\n                    lightSliders[i] = defaultLightSliders[i];\n                }\n                modelScaleSlider = 0.272727f;\n                modelRotateSlider = 0.5f;\n                modelMoveMode = false;\n                fullPbrMode = false;\n                if (importedModelPlaced) {\n                    importedModelRoot = importedModelDefaultRoot;\n                }\n            }\n            resetTouchPrev = resetTouchNow;\n\n            const bool pinTouchNow ='''
+if old_interaction not in text:
+    raise SystemExit('Interaction anchor not found')
+text = text.replace(old_interaction, new_interaction, 1)
+
+old_release = '''            pinTouchPrev = false;\n            importTouchPrev = false;\n            resetTouchPrev = false;'''
+new_release = '''            pinTouchPrev = false;\n            importTouchPrev = false;\n            resetTouchPrev = false;\n            materialTouchPrev = false;\n            modelMoveTouchPrev = false;'''
+if old_release not in text:
+    raise SystemExit('Nested touch release anchor missing')
+text = text.replace(old_release, new_release, 1)
+outer_release = '''        pinTouchPrev = false;\n        importTouchPrev = false;\n        resetTouchPrev = false;'''
+outer_new = '''        pinTouchPrev = false;\n        importTouchPrev = false;\n        resetTouchPrev = false;\n        materialTouchPrev = false;\n        modelMoveTouchPrev = false;'''
+if outer_release not in text:
+    raise SystemExit('Outer touch release anchor missing')
+text = text.replace(outer_release, outer_new, 1)
+
+old_spawn = '''        importedModelRoot = headPose * Matrix4f::Translation(0.0f, -0.08f, -1.00f);\n        importedModelPlaced = true;'''
+new_spawn = '''        importedModelRoot = headPose * Matrix4f::Translation(0.0f, -0.08f, -1.00f);\n        importedModelDefaultRoot = importedModelRoot;\n        modelScaleSlider = 0.272727f;\n        modelRotateSlider = 0.5f;\n        modelMoveMode = false;\n        importedModelPlaced = true;'''
+if old_spawn not in text:
+    raise SystemExit('Model spawn anchor not found')
+text = text.replace(old_spawn, new_spawn, 1)
+
+spawn_end = '''    }\n\n    const float ambientStrength ='''
+move_block = '''    }\n\n    // MODEL MOVE uses controller 0 as the mover while controller 1 remains free\n    // to operate the tablet. With one controller the available pointer is used.\n    if (modelMoveMode && importedModelPlaced && !scene.TrackedControllers.empty()) {\n        const Matrix4f moverPose(scene.TrackedControllers[0].Pose);\n        const Matrix4f moverTarget = moverPose * Mat
