@@ -1,0 +1,81 @@
+                int start = Math.max(0, edit.getSelectionStart());
+                int end = Math.max(0, edit.getSelectionEnd());
+                int lo = Math.min(start, end);
+                int hi = Math.max(start, end);
+                edit.getText().replace(lo, hi, text);
+                edit.setSelection(lo + text.length());
+                return true;
+            }
+            EditorInfo info = new EditorInfo();
+            InputConnection connection = target.onCreateInputConnection(info);
+            return connection != null && connection.commitText(text, 1);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static String germanTextFor(KeyEvent event) {
+        final int key = event.getKeyCode();
+        final boolean shift = event.isShiftPressed();
+        final boolean altGr = (event.getMetaState() & KeyEvent.META_ALT_RIGHT_ON) != 0 ||
+                ((event.getMetaState() & KeyEvent.META_ALT_ON) != 0 &&
+                 (event.getMetaState() & KeyEvent.META_CTRL_ON) != 0);
+
+        if (altGr) {
+            switch (key) {
+                case KeyEvent.KEYCODE_Q: return "@";
+                case KeyEvent.KEYCODE_E: return "€";
+                case KeyEvent.KEYCODE_M: return "µ";
+                case KeyEvent.KEYCODE_7: return "{";
+                case KeyEvent.KEYCODE_8: return "[";
+                case KeyEvent.KEYCODE_9: return "]";
+                case KeyEvent.KEYCODE_0: return "}";
+                case KeyEvent.KEYCODE_MINUS: return "\\";
+                default: return null;
+            }
+        }
+
+        switch (key) {
+            case KeyEvent.KEYCODE_Y: return shift ? "Z" : "z";
+            case KeyEvent.KEYCODE_Z: return shift ? "Y" : "y";
+            case KeyEvent.KEYCODE_SEMICOLON: return shift ? "Ö" : "ö";
+            case KeyEvent.KEYCODE_APOSTROPHE: return shift ? "Ä" : "ä";
+            case KeyEvent.KEYCODE_LEFT_BRACKET: return shift ? "Ü" : "ü";
+            case KeyEvent.KEYCODE_MINUS: return shift ? "?" : "ß";
+            case KeyEvent.KEYCODE_EQUALS: return shift ? "`" : "´";
+            case KeyEvent.KEYCODE_GRAVE: return shift ? "°" : "^";
+            case KeyEvent.KEYCODE_SLASH: return shift ? "_" : "-";
+            case KeyEvent.KEYCODE_BACKSLASH: return shift ? "'" : "#";
+            case KeyEvent.KEYCODE_RIGHT_BRACKET: return shift ? "*" : "+";
+            case KeyEvent.KEYCODE_COMMA: return shift ? ";" : null;
+            case KeyEvent.KEYCODE_PERIOD: return shift ? ":" : null;
+            case KeyEvent.KEYCODE_1: return shift ? "!" : null;
+            case KeyEvent.KEYCODE_2: return shift ? "\"" : null;
+            case KeyEvent.KEYCODE_3: return shift ? "§" : null;
+            case KeyEvent.KEYCODE_4: return shift ? "$" : null;
+            case KeyEvent.KEYCODE_5: return shift ? "%" : null;
+            case KeyEvent.KEYCODE_6: return shift ? "&" : null;
+            case KeyEvent.KEYCODE_7: return shift ? "/" : null;
+            case KeyEvent.KEYCODE_8: return shift ? "(" : null;
+            case KeyEvent.KEYCODE_9: return shift ? ")" : null;
+            case KeyEvent.KEYCODE_0: return shift ? "=" : null;
+            default: return null;
+        }
+    }
+
+    private static Button button(Activity activity, String text) {
+        Button button = new Button(activity);
+        button.setText(text);
+        button.setTextSize(16f);
+        button.setAllCaps(false);
+        button.setTextColor(Color.rgb(25, 30, 35));
+        return button;
+    }
+
+    private static LinearLayout.LayoutParams fixed(int width, int height) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(width, height);
+        params.setMargins(2, 0, 2, 0);
+        return params;
+    }
+
+    private static int dp(int value, float density) {
