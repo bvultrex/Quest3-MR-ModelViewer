@@ -1,0 +1,100 @@
+            const float hitX = aimPose.position.x + forward.x * t;
+            const float hitY = aimPose.position.y + forward.y * t;
+            u = (hitX - PanelCenter.x) / PanelWidthMeters + 0.5f;
+            v = (hitY - PanelCenter.y) / PanelHeightMeters + 0.5f;
+            inside = u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f;
+        }
+    }
+
+    if (inside && PointerMethod != nullptr) {
+        LastPointerU = u;
+        LastPointerV = v;
+        int action = 7; // MotionEvent.ACTION_HOVER_MOVE
+        if (triggerPressed && !TriggerWasPressed) action = 0; // DOWN
+        else if (!triggerPressed && TriggerWasPressed) action = 1; // UP
+        else if (triggerPressed) action = 2; // MOVE while pressed
+        env->CallStaticVoidMethod(BridgeClass, PointerMethod, u, v, action);
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        PointerWasInside = true;
+    } else {
+        if (!triggerPressed && TriggerWasPressed && PointerWasInside && PointerMethod != nullptr) {
+            env->CallStaticVoidMethod(
+                BridgeClass,
+                PointerMethod,
+                LastPointerU,
+                LastPointerV,
+                1);
+            if (env->ExceptionCheck()) env->ExceptionClear();
+        }
+        if (HidePointerMethod != nullptr) {
+            env->CallStaticVoidMethod(BridgeClass, HidePointerMethod);
+            if (env->ExceptionCheck()) env->ExceptionClear();
+        }
+        PointerWasInside = false;
+    }
+
+    TriggerWasPressed = triggerPressed;
+    GripWasPressed = false;
+}
+
+'''
+cpp = cpp.replace(render_method_anchor, interaction_impl + render_method_anchor, 1)
+
+cpp = replace_once(
+    cpp,
+    '''    layer.pose.orientation.w = 1.0f;
+    layer.pose.position = {0.0f, kPanelCenterY, kPanelCenterZ};
+    layer.size = {kPanelWidthMeters, kPanelHeightMeters};
+''',
+    '''    layer.pose.orientation.w = 1.0f;
+    layer.pose.position = PanelCenter;
+    layer.size = {PanelWidthMeters, PanelHeightMeters};
+''',
+    'dynamic layer pose and size')
+
+cpp = replace_once(
+    cpp,
+    '''    if (ActivityObject != nullptr) {
+        env->DeleteGlobalRef(ActivityObject);
+        ActivityObject = nullptr;
+    }
+
+    for (auto& swapchain : Swapchains) {
+''',
+    '''    if (ActivityObject != nullptr) {
+        env->DeleteGlobalRef(ActivityObject);
+        ActivityObject = nullptr;
+    }
+    if (BridgeClass != nullptr) {
+        env->DeleteGlobalRef(BridgeClass);
+        BridgeClass = nullptr;
+    }
+    PointerMethod = nullptr;
+    HidePointerMethod = nullptr;
+
+    for (auto& swapchain : Swapchains) {
+''',
+    'bridge cleanup')
+cpp_path.write_text(cpp)
+
+# ---------------------------------------------------------------------------
+# Main loop: locate right controller aim, feed pointer/grip/scale state before
+# rendering the browser swapchains.
+# ---------------------------------------------------------------------------
+main_path = SRC / 'XrPassthroughOcclusion.cpp'
+main = main_path.read_text()
+controller_anchor = '''        app.appRenderer.scene.TrackedControllers.clear();
+        for (const XrSpace controllerSpace : controllerSpaces) {
+            XrSpaceLocation loc{XR_TYPE_SPACE_LOCATION};
+            OXR(xrLocateSpace(
+                controllerSpace, app.LocalSpace, frameState.predictedDisplayTime, &loc));
+            app.appRenderer.scene.TrackedControllers.push_back({});
+            app.appRenderer.scene.TrackedControllers.back().Pose = OvrFromXr(loc.pose);
+        }
+
+        AppRenderer::FrameIn frameIn;
+'''
+controller_replacement = '''        app.appRenderer.scene.TrackedControllers.clear();
+        for (const XrSpace controllerSpace : controllerSpaces) {
+            XrSpaceLocation loc{XR_TYPE_SPACE_LOCATION};
+            OXR(xrLocateSpace(
