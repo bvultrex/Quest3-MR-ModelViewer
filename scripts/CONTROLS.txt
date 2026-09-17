@@ -1,26 +1,33 @@
-Quest3 MR Model Viewer v0.3.8 - Trigger UI + GLB Return Fix
+Quest3 MR Model Viewer v0.3.15 - Direct MR Grabbing
 
 UI INTERACTION
-- Point at a control with the controller pointer.
-- Proximity/hover alone never activates a control anymore.
-- Buttons activate on a trigger click.
+- Left and right controllers can independently point at the tablet.
+- Proximity/hover alone never activates a control.
+- Buttons activate on trigger click.
 - Sliders move only while the trigger is held; drag and release to set the value.
 
-PIN MOVE
-- Point at PIN MOVE and click the trigger to enter MOVE mode.
-- Controller 0 moves the tablet position while MOVE is active.
-- Click PIN MOVE again to pin the tablet in room space.
+TABLET
+- GRIP MOVE is a status/instruction row, not a button.
+- Bring either controller near the tablet and hold the side Grip/Squeeze button.
+- The tablet follows that hand in full 6DoF while preserving the exact grab offset.
+- Release Grip/Squeeze to leave the tablet in room space.
+- The other hand remains free to operate the UI while one hand holds the tablet.
 
 IMPORT GLB
 - Point at IMPORT GLB and click the trigger.
-- Android's document picker opens.
+- Android's document picker opens visibly in front of the XR app.
 - After selection or cancellation the viewer is explicitly brought back to the foreground.
+- Persisted GLB files are never auto-loaded on cold start.
 - Imported files are validated transactionally before replacing the current mesh.
-- Current guard: 192 MiB, 3,000,000 vertices, 12,000,000 indices.
+- Current guards: 192 MiB file, 3,000,000 vertices, 12,000,000 indices, 2,000,000 triangles, 4096 max texture edge, 160 MiB estimated mipmapped texture residency, 256 MiB estimated total GPU model resources, 384 MiB estimated CPU import working set.
 
 MODEL
+- GRIP MODEL is a status/instruction row, not a toggle.
+- Bring either controller close to the visible model and hold Grip/Squeeze.
+- The model follows that hand in full 6DoF while preserving the exact grab offset.
+- Release Grip/Squeeze to leave the model in room space.
+- The other hand remains free for tablet controls while one hand holds the model.
 - PBR FULL toggles Normal + Metallic/Roughness processing.
-- MODEL MOVE toggles controller-driven model placement.
 - SCALE is adjusted by holding trigger and dragging the slider.
 - ROTATE is adjusted by holding trigger and dragging the slider.
 - RESET ALL restores lighting and model transform defaults.
