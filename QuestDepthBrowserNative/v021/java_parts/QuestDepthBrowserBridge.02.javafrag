@@ -1,0 +1,84 @@
+        addressBar = new EditText(activity);
+        addressBar.setSingleLine(true);
+        addressBar.setText("https://www.wikipedia.org/");
+        addressBar.setSelectAllOnFocus(true);
+        addressBar.setTextColor(Color.WHITE);
+        addressBar.setHintTextColor(Color.LTGRAY);
+        addressBar.setTextSize(17f);
+        addressBar.setBackgroundColor(Color.rgb(68, 91, 115));
+        addressBar.setPadding(dp(14, density), 0, dp(14, density), 0);
+
+        toolbar.addView(back, fixed(dp(70, density), dp(54, density)));
+        toolbar.addView(forward, fixed(dp(70, density), dp(54, density)));
+        toolbar.addView(reload, fixed(dp(70, density), dp(54, density)));
+        toolbar.addView(addressBar, new LinearLayout.LayoutParams(0, dp(54, density), 1f));
+        toolbar.addView(go, fixed(dp(74, density), dp(54, density)));
+        toolbar.addView(badge, fixed(dp(300, density), dp(54, density)));
+
+        webView = new WebView(activity);
+        webView.setBackgroundColor(Color.rgb(12, 17, 22));
+        webView.setFocusable(true);
+        webView.setFocusableInTouchMode(true);
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setLoadWithOverviewMode(false);
+        settings.setUseWideViewPort(true);
+        settings.setBuiltInZoomControls(false);
+        settings.setDisplayZoomControls(false);
+        settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        settings.setSupportZoom(true);
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                if (addressBar != null && !addressBar.hasFocus()) addressBar.setText(url);
+            }
+        });
+        webView.setWebChromeClient(new WebChromeClient());
+
+        back.setOnClickListener(v -> {
+            if (webView != null && webView.canGoBack()) webView.goBack();
+        });
+        forward.setOnClickListener(v -> {
+            if (webView != null && webView.canGoForward()) webView.goForward();
+        });
+        reload.setOnClickListener(v -> {
+            if (webView != null) webView.reload();
+        });
+        go.setOnClickListener(v -> navigate());
+        addressBar.setOnEditorActionListener((v, actionId, event) -> {
+            navigate();
+            return true;
+        });
+
+        browserRoot.addView(toolbar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(68, density)));
+        browserRoot.addView(webView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        rootFrame.addView(browserRoot, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        pointerOverlay = new PointerOverlay(activity);
+        rootFrame.addView(pointerOverlay, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        return rootFrame;
+    }
+
+    private static View currentInputTarget() {
+        try {
+            if (presentation != null && presentation.getWindow() != null) {
+                View focused = presentation.getWindow().getDecorView().findFocus();
+                if (focused != null) return focused;
+            }
+        } catch (Throwable ignored) {}
+        return addressBar;
+    }
+
+    private static boolean commitText(View target, String text) {
+        if (target == null || text == null || text.isEmpty()) return false;
+        try {
+            if (target instanceof EditText) {
+                EditText edit = (EditText) target;
