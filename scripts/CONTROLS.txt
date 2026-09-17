@@ -1,4 +1,4 @@
-Quest3 MR Model Viewer v1.0.0
+Quest3 MR Model Viewer v1.0.1 RC
 
 UI
 - Either controller can point at the tablet.
@@ -9,7 +9,7 @@ UI
 TABLET GRAB
 - Bring either controller close to the tablet.
 - Hold Grip/Squeeze to grab it.
-- Position and full orientation follow the controller without snapping.
+- Position and full orientation follow without snapping.
 - Release Grip to leave the tablet in room space.
 - The other hand remains available for UI interaction.
 
@@ -28,8 +28,9 @@ MODEL
 - Full position + orientation follow the hand without snapping.
 - Release Grip to leave the model in room space.
 - PBR FULL enables authored Normal + Metallic/Roughness processing.
-- REAL SCALE toggles physical 1:1 glTF scale: 1 linear glTF unit = 1 metre.
-- SCALE adjusts fitted display scale and automatically exits REAL SCALE.
+- SIZE cycles: FIT -> 32MM -> 75MM -> 150MM -> 300MM -> FIT.
+- A millimetre preset sets the model's largest displayed dimension to that size.
+- SCALE adjusts fitted display scale and automatically returns SIZE to FIT.
 - ROTATE adjusts model yaw.
 - RESET ALL restores lighting and model transform defaults.
 
