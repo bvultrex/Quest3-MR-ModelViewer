@@ -8,6 +8,8 @@
 #define XR_USE_PLATFORM_ANDROID 1
 #endif
 #include <jni.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
 #include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
 #endif
