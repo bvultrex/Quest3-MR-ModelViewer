@@ -1,0 +1,162 @@
+import com.meta.spatial.toolkit.DpDisplayOptions
+import com.meta.spatial.toolkit.Grabbable
+import com.meta.spatial.toolkit.LayoutXMLPanelRegistration
+import com.meta.spatial.toolkit.Panel
+import com.meta.spatial.toolkit.PanelRegistration
+import com.meta.spatial.toolkit.PanelRenderMode
+import com.meta.spatial.toolkit.QuadShapeOptions
+import com.meta.spatial.toolkit.Transform
+import com.meta.spatial.toolkit.UIPanelRenderOptions
+import com.meta.spatial.toolkit.UIPanelSettings
+import com.meta.spatial.toolkit.Visible
+import com.meta.spatial.vr.VRFeature
+
+class QuestDepthBrowserActivity : AppSystemActivity() {
+
+  private var webView: WebView? = null
+  private var addressBar: EditText? = null
+  private var depthButton: Button? = null
+  private var depthEnabled = true
+  private var browserPanel: Entity? = null
+
+  override fun registerFeatures(): List<SpatialFeature> = listOf(VRFeature(this))
+
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+    requestScenePermissionIfNeeded()
+  }
+
+  override fun onSceneReady() {
+    super.onSceneReady()
+
+    scene.setReferenceSpace(ReferenceSpace.LOCAL_FLOOR)
+    scene.enablePassthrough(true)
+    applyDepthMode()
+
+    // Meta's sample places forward content on +Z. Start at comfortable seated height.
+    browserPanel =
+        Entity.create(
+            Panel(R.id.depth_browser_panel),
+            Transform(Pose(Vector3(0f, 1.25f, 1.35f))),
+            Grabbable(true),
+            Visible(true),
+        )
+  }
+
+  override fun registerPanels(): List<PanelRegistration> {
+    return listOf(
+        LayoutXMLPanelRegistration(
+            R.id.depth_browser_panel,
+            layoutIdCreator = { R.layout.depth_browser_layout },
+            settingsCreator = {
+              UIPanelSettings(
+                  shape = QuadShapeOptions(width = 1.45f, height = 0.90f),
+                  display = DpDisplayOptions(width = 1450f, height = 900f),
+                  // Mesh mode is intentional for v0.1: Environment Depth must be able to
+                  // participate in normal 3D depth testing. Layer mode comes later.
+                  rendering = UIPanelRenderOptions(renderMode = PanelRenderMode.Mesh()),
+              )
+            },
+            panelSetupWithRootView = { rootView, _, _ -> configureBrowser(rootView) },
+        ),
+    )
+  }
+
+  private fun configureBrowser(rootView: View) {
+    webView = rootView.findViewById(R.id.browser_webview)
+    addressBar = rootView.findViewById(R.id.browser_address)
+    depthButton = rootView.findViewById(R.id.browser_depth)
+    val progress = rootView.findViewById<ProgressBar>(R.id.browser_progress)
+
+    webView?.apply {
+      settings.javaScriptEnabled = true
+      settings.domStorageEnabled = true
+      settings.mediaPlaybackRequiresUserGesture = false
+      settings.useWideViewPort = true
+      settings.loadWithOverviewMode = true
+      settings.builtInZoomControls = true
+      settings.displayZoomControls = false
+
+      webViewClient =
+          object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+              super.onPageFinished(view, url)
+              if (!url.isNullOrBlank()) addressBar?.setText(url)
+            }
+          }
+
+      webChromeClient =
+          object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+              progress.progress = newProgress
+              progress.visibility = if (newProgress >= 100) View.GONE else View.VISIBLE
+            }
+          }
+    }
+
+    fun navigate() {
+      val raw = addressBar?.text?.toString()?.trim().orEmpty()
+      if (raw.isBlank()) return
+      val url = if (raw.contains("://")) raw else "https://$raw"
+      webView?.loadUrl(url)
+    }
+
+    rootView.findViewById<Button>(R.id.browser_back).setOnClickListener {
+      if (webView?.canGoBack() == true) webView?.goBack()
+    }
+    rootView.findViewById<Button>(R.id.browser_forward).setOnClickListener {
+      if (webView?.canGoForward() == true) webView?.goForward()
+    }
+    rootView.findViewById<Button>(R.id.browser_reload).setOnClickListener { webView?.reload() }
+    rootView.findViewById<Button>(R.id.browser_go).setOnClickListener { navigate() }
+    depthButton?.setOnClickListener {
+      depthEnabled = !depthEnabled
+      applyDepthMode()
+      updateDepthButton()
+    }
+    addressBar?.setOnEditorActionListener { _, actionId, _ ->
+      if (actionId == EditorInfo.IME_ACTION_GO) {
+        navigate()
+        true
+      } else {
+        false
+      }
+    }
+
+    updateDepthButton()
+    webView?.loadUrl("https://www.wikipedia.org/")
+  }
+
+  private fun applyDepthMode() {
+    scene.setEnvironmentDepthMode(
+        if (depthEnabled) EnvironmentDepthMode.OCCLUSION else EnvironmentDepthMode.OFF,
+    )
+  }
+
+  private fun updateDepthButton() {
+    depthButton?.text = if (depthEnabled) "DEPTH ON" else "DEPTH OFF"
+  }
+
+  override fun onSessionStateChanged(state: SessionState) {
+    super.onSessionStateChanged(state)
+    when (state) {
+      SessionState.VISIBLE -> webView?.onPause()
+      SessionState.FOCUSED -> webView?.onResume()
+      else -> Unit
+    }
+  }
+
+  private fun requestScenePermissionIfNeeded() {
+    val permission = "com.oculus.permission.USE_SCENE"
+    if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
+      requestPermissions(arrayOf(permission), 1001)
+    }
+  }
+}
+''')
+
+print('Quest Depth Browser v0.1 patch applied')
+print('app id: com.bvultrex.questdepthbrowser')
+print('panel: mesh-rendered 1.45m x 0.90m WebView')
+print('passthrough: ON')
+print('environment depth: OCCLUSION')
