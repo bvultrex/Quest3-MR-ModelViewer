@@ -4,6 +4,10 @@ set -euo pipefail
 : "${APP_ID:?APP_ID is required}"
 : "${APP_LABEL:?APP_LABEL is required}"
 ROOT='meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android'
+RES='meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/res'
+ICON="$RES/mipmap-xxxhdpi/questmr_icon.png"
+
+python3 scripts/generate_icon.py "$ICON"
 
 python3 - "$ROOT/build.gradle" "$ROOT/AndroidManifest.xml" <<'PY'
 from pathlib import Path
@@ -20,10 +24,38 @@ gradle = gradle.replace('versionName "1.0"', f'versionName "{version}"', 1)
 build_gradle.write_text(gradle)
 
 xml = manifest.read_text()
-xml = xml.replace('android:label="xrpassthroughocclusion"', f'android:label="{label}"', 1)
+xml = xml.replace(
+    '      android:label="xrpassthroughocclusion"\n      >',
+    f'      android:label="{label}"\n'
+    '      android:icon="@mipmap/questmr_icon"\n'
+    '      android:roundIcon="@mipmap/questmr_icon"\n'
+    '      >',
+    1,
+)
+
+# Horizon OS may surface the currently running Activity/task label rather than
+# only the application label. Give both VR activities explicit identity so the
+# universal menu never falls back to "App name unavailable".
+for activity in (
+    'com.oculus.xrpassthroughocclusion.MainActivity',
+    'com.oculus.xrpassthroughocclusion.MainNativeActivity',
+):
+    needle = f'        android:name="{activity}"\n        android:theme='
+    replacement = (
+        f'        android:name="{activity}"\n'
+        f'        android:label="{label}"\n'
+        '        android:icon="@mipmap/questmr_icon"\n'
+        '        android:theme='
+    )
+    if needle not in xml:
+        raise SystemExit(f'Activity branding anchor not found: {activity}')
+    xml = xml.replace(needle, replacement, 1)
+
 manifest.write_text(xml)
 PY
 
 echo '--- Branding check ---'
 grep -nE 'applicationId|versionName' "$ROOT/build.gradle"
-grep -n 'android:label' "$ROOT/AndroidManifest.xml"
+grep -nE 'android:label|android:icon|android:roundIcon' "$ROOT/AndroidManifest.xml"
+test -s "$ICON"
+file "$ICON"
