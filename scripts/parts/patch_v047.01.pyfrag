@@ -1,0 +1,177 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# Add the few glyphs needed for physical-size readouts.
+old_glyph_tail = '''    static const uint8_t Z[7] = {0x1F,0x01,0x02,0x04,0x08,0x10,0x1F};\n    switch (c) {'''
+new_glyph_tail = '''    static const uint8_t Z[7] = {0x1F,0x01,0x02,0x04,0x08,0x10,0x1F};\n    static const uint8_t F[7] = {0x1F,0x10,0x10,0x1E,0x10,0x10,0x10};\n    static const uint8_t N0[7] = {0x0E,0x11,0x13,0x15,0x19,0x11,0x0E};\n    static const uint8_t N1[7] = {0x04,0x0C,0x04,0x04,0x04,0x04,0x0E};\n    static const uint8_t N2[7] = {0x0E,0x11,0x01,0x02,0x04,0x08,0x1F};\n    static const uint8_t N3[7] = {0x1E,0x01,0x01,0x0E,0x01,0x01,0x1E};\n    static const uint8_t N4[7] = {0x02,0x06,0x0A,0x12,0x1F,0x02,0x02};\n    static const uint8_t N5[7] = {0x1F,0x10,0x10,0x1E,0x01,0x01,0x1E};\n    static const uint8_t N6[7] = {0x0E,0x10,0x10,0x1E,0x11,0x11,0x0E};\n    static const uint8_t N7[7] = {0x1F,0x01,0x02,0x04,0x08,0x08,0x08};\n    static const uint8_t N8[7] = {0x0E,0x11,0x11,0x0E,0x11,0x11,0x0E};\n    static const uint8_t N9[7] = {0x0E,0x11,0x11,0x0F,0x01,0x01,0x0E};\n    switch (c) {'''
+if old_glyph_tail not in text:
+    raise SystemExit('v1.0.1 glyph declaration anchor not found')
+text = text.replace(old_glyph_tail, new_glyph_tail, 1)
+
+old_switch_tail = '''        case 'Y': return Y; case 'Z': return Z; default: return SPACE;'''
+new_switch_tail = '''        case 'Y': return Y; case 'Z': return Z; case 'F': return F;\n        case '0': return N0; case '1': return N1; case '2': return N2; case '3': return N3;\n        case '4': return N4; case '5': return N5; case '6': return N6; case '7': return N7;\n        case '8': return N8; case '9': return N9; default: return SPACE;'''
+if old_switch_tail not in text:
+    raise SystemExit('v1.0.1 glyph switch anchor not found')
+text = text.replace(old_switch_tail, new_switch_tail, 1)
+
+status_tail = '''void QuestMrBuildImportStatusMeshes() {\n    static const char* labels[4] = {"IDLE", "WAIT", "READY", "ERROR"};\n    for (int i = 0; i < 4; ++i) {\n        QuestMrBuildSingleStatusMesh(gQuestMrImportStatusMeshes[i], labels[i]);\n    }\n}\n\n} // namespace\n'''
+replacement = r'''void QuestMrBuildImportStatusMeshes() {
+    static const char* labels[4] = {"IDLE", "WAIT", "READY", "ERROR"};
+    for (int i = 0; i < 4; ++i) {
+        QuestMrBuildSingleStatusMesh(gQuestMrImportStatusMeshes[i], labels[i]);
+    }
+}
+
+QuestMrUiTextMesh gQuestMrPhysicalSizeMeshes[5];
+
+void QuestMrBuildSinglePhysicalSizeMesh(QuestMrUiTextMesh& mesh, const char* label) {
+    if (mesh.built) {
+        return;
+    }
+    std::vector<QuestMrImportedVertex> vertices;
+    std::vector<uint32_t> indices;
+    vertices.reserve(512);
+    indices.reserve(768);
+    QuestMrAppendCenteredUiText(
+        vertices, indices, 0.060f, -0.1535f, -0.0062f, 0.00116f, label);
+    if (vertices.empty() || indices.empty()) {
+        return;
+    }
+    GL(glGenVertexArrays(1, &mesh.vao));
+    GL(glBindVertexArray(mesh.vao));
+    GL(glGenBuffers(1, &mesh.vbo));
+    GL(glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo));
+    GL(glBufferData(
+        GL_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(vertices.size() * sizeof(QuestMrImportedVertex)),
+        vertices.data(),
+        GL_STATIC_DRAW));
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_POSITION));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_POSITION,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, position))));
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_COLOR));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_COLOR,
+        4,
+        GL_UNSIGNED_BYTE,
+        GL_TRUE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, color))));
+    GL(glGenBuffers(1, &mesh.ibo));
+    GL(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ibo));
+    GL(glBufferData(
+        GL_ELEMENT_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(indices.size() * sizeof(uint32_t)),
+        indices.data(),
+        GL_STATIC_DRAW));
+    GL(glBindVertexArray(0));
+    mesh.indexCount = static_cast<GLsizei>(indices.size());
+    mesh.built = true;
+}
+
+void QuestMrBuildPhysicalSizeMeshes() {
+    static const char* labels[5] = {"FIT", "32MM", "75MM", "150MM", "300MM"};
+    for (int i = 0; i < 5; ++i) {
+        QuestMrBuildSinglePhysicalSizeMesh(gQuestMrPhysicalSizeMeshes[i], labels[i]);
+    }
+}
+
+void QuestMrReleaseUiTextMesh(QuestMrUiTextMesh& mesh) {
+    if (mesh.vao != 0) {
+        GL(glDeleteVertexArrays(1, &mesh.vao));
+    }
+    if (mesh.vbo != 0) {
+        GL(glDeleteBuffers(1, &mesh.vbo));
+    }
+    if (mesh.ibo != 0) {
+        GL(glDeleteBuffers(1, &mesh.ibo));
+    }
+    mesh = QuestMrUiTextMesh{};
+}
+
+void QuestMrInvalidateAllUiTextMeshes() {
+    // No GL deletion here: this is called at Scene::Create specifically to
+    // invalidate handles that may belong to a previous EGL context.
+    gQuestMrUiTextMesh = QuestMrUiTextMesh{};
+    for (auto& mesh : gQuestMrImportStatusMeshes) {
+        mesh = QuestMrUiTextMesh{};
+    }
+    for (auto& mesh : gQuestMrPhysicalSizeMeshes) {
+        mesh = QuestMrUiTextMesh{};
+    }
+}
+
+void QuestMrDestroyAllUiTextMeshes() {
+    QuestMrReleaseUiTextMesh(gQuestMrUiTextMesh);
+    for (auto& mesh : gQuestMrImportStatusMeshes) {
+        QuestMrReleaseUiTextMesh(mesh);
+    }
+    for (auto& mesh : gQuestMrPhysicalSizeMeshes) {
+        QuestMrReleaseUiTextMesh(mesh);
+    }
+    gQuestMrImportState = 0;
+}
+
+} // namespace
+'''
+if status_tail not in text:
+    raise SystemExit('v1.0.1 status/lifecycle insertion anchor not found')
+text = text.replace(status_tail, replacement, 1)
+
+old_create = '''void Scene::Create() {\n    // Setup the scene matrices.'''
+new_create = '''void Scene::Create() {\n    // v1.0.1: never trust static GL object names across an EGL/scene restart.\n    QuestMrInvalidateAllUiTextMeshes();\n\n    // Setup the scene matrices.'''
+if old_create not in text:
+    raise SystemExit('v1.0.1 Scene::Create lifecycle anchor not found')
+text = text.replace(old_create, new_create, 1)
+
+old_destroy = '''    BoxDepthSpaceOcclusionProgram.Destroy();\n    Box.Destroy();\n    QuestMrDestroyImportedMesh();\n\n    CreatedScene = false;'''
+new_destroy = '''    BoxDepthSpaceOcclusionProgram.Destroy();\n    QuestMrDestroyAllUiTextMeshes();\n    Box.Destroy();\n    QuestMrDestroyImportedMesh();\n\n    CreatedScene = false;'''
+if old_destroy not in text:
+    raise SystemExit('v1.0.1 Scene::Destroy lifecycle anchor not found')
+text = text.replace(old_destroy, new_destroy, 1)
+
+old_build = '''        QuestMrBuildUiTextMesh();\n        QuestMrBuildImportStatusMeshes();'''
+new_build = '''        QuestMrBuildUiTextMesh();\n        QuestMrBuildImportStatusMeshes();\n        QuestMrBuildPhysicalSizeMeshes();'''
+if old_build not in text:
+    raise SystemExit('v1.0.1 physical size build anchor not found')
+text = text.replace(old_build, new_build, 1)
+
+pointer_anchor = '''        if (havePointer) {\n            const Matrix4f pointerMarker ='''
+size_draw = r'''        const QuestMrUiTextMesh& sizeMesh =
+            gQuestMrPhysicalSizeMeshes[std::max(0, std::min(4, physicalSizePreset))];
+        if (sizeMesh.built && sizeMesh.indexCount > 0) {
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                1.0f));
+            GL(glUniform3f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+                physicalSizePreset > 0 ? 0.44f : 0.72f,
+                physicalSizePreset > 0 ? 0.92f : 0.78f,
+                physicalSizePreset > 0 ? 0.64f : 0.86f));
+            GL(glUniformMatrix4fv(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+                1,
+                GL_TRUE,
+                &panelPose.M[0][0]));
+            GL(glBindVertexArray(sizeMesh.vao));
+            GL(glDrawElements(GL_TRIANGLES, sizeMesh.indexCount, GL_UNSIGNED_INT, nullptr));
+            GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+        }
+
+        if (havePointer) {
+            const Matrix4f pointerMarker ='''
+if pointer_anchor not in text:
+    raise SystemExit('v1.0.1 physical size draw anchor not found')
+text = text.replace(pointer_anchor, size_draw, 1)
+
+cpp.write_text(text)
+print('v1.0.1 UI text meshes reset on Scene::Create: ON')
+print('v1.0.1 UI text meshes released on Scene::Destroy: ON')
+print('v1.0.1 physical size readout FIT/32MM/75MM/150MM/300MM: ON')
