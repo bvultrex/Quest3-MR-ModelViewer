@@ -1,0 +1,174 @@
+        SurfaceTransformArray);
+    if (!env->ExceptionCheck()) {
+        env->GetFloatArrayRegion(
+            SurfaceTransformArray,
+            0,
+            16,
+            SurfaceTransform.data());
+    } else {
+        env->ExceptionClear();
+    }
+}
+
+bool QuestDepthBrowserNative::RenderEye(
+    int eye,
+    bool hasDepth,
+    GLuint environmentDepthTexture,
+    const float* depthView,
+    const float* depthProjection) {
+    uint32_t imageIndex = 0;
+    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+    if (!CheckXr("xrAcquireSwapchainImage(browser)", xrAcquireSwapchainImage(
+            Swapchains[eye], &acquireInfo, &imageIndex))) {
+        return false;
+    }
+    XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    waitInfo.timeout = 1000000000;
+    if (!CheckXr("xrWaitSwapchainImage(browser)", xrWaitSwapchainImage(
+            Swapchains[eye], &waitInfo))) {
+        return false;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, Framebuffer);
+    glFramebufferTexture2D(
+        GL_FRAMEBUFFER,
+        GL_COLOR_ATTACHMENT0,
+        GL_TEXTURE_2D,
+        SwapchainImages[eye][imageIndex].image,
+        0);
+    GLenum framebufferStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (framebufferStatus != GL_FRAMEBUFFER_COMPLETE) {
+        QDB_LOGE("browser framebuffer incomplete: 0x%x", framebufferStatus);
+    }
+
+    glViewport(0, 0, TextureWidth, TextureHeight);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glUseProgram(Program);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, ExternalTexture);
+    glUniform1i(BrowserTextureLocation, 0);
+    glUniformMatrix4fv(
+        BrowserTextureTransformLocation,
+        1,
+        GL_FALSE,
+        SurfaceTransform.data());
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, environmentDepthTexture);
+    glUniform1i(DepthTextureLocation, 1);
+    glUniformMatrix4fv(DepthViewLocation, 1, GL_FALSE, depthView);
+    glUniformMatrix4fv(DepthProjectionLocation, 1, GL_FALSE, depthProjection);
+    glUniform1i(EyeLocation, eye);
+    glUniform1f(HasDepthLocation, hasDepth ? 1.0f : 0.0f);
+
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
+    glUseProgram(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    return CheckXr("xrReleaseSwapchainImage(browser)", xrReleaseSwapchainImage(
+        Swapchains[eye], &releaseInfo));
+}
+
+void QuestDepthBrowserNative::Render(
+    JNIEnv* env,
+    bool hasDepth,
+    GLuint environmentDepthTexture,
+    const float* depthViewLeft,
+    const float* depthProjectionLeft,
+    const float* depthViewRight,
+    const float* depthProjectionRight) {
+    if (!Ready) return;
+    UpdateBrowserTexture(env);
+    RenderEye(
+        0,
+        hasDepth,
+        environmentDepthTexture,
+        depthViewLeft,
+        depthProjectionLeft);
+    RenderEye(
+        1,
+        hasDepth,
+        environmentDepthTexture,
+        depthViewRight,
+        depthProjectionRight);
+}
+
+XrCompositionLayerQuad QuestDepthBrowserNative::MakeLayer(
+    int eye,
+    XrSpace localSpace) const {
+    XrCompositionLayerQuad layer{XR_TYPE_COMPOSITION_LAYER_QUAD};
+    layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT |
+        XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+    layer.space = localSpace;
+    layer.eyeVisibility = eye == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT;
+    layer.subImage.swapchain = Swapchains[eye];
+    layer.subImage.imageRect.offset = {0, 0};
+    layer.subImage.imageRect.extent = {TextureWidth, TextureHeight};
+    layer.subImage.imageArrayIndex = 0;
+    layer.pose.orientation.w = 1.0f;
+    layer.pose.position = {0.0f, kPanelCenterY, kPanelCenterZ};
+    layer.size = {kPanelWidthMeters, kPanelHeightMeters};
+    return layer;
+}
+
+void QuestDepthBrowserNative::Destroy(JNIEnv* env) {
+    Ready = false;
+
+    if (ActivityObject != nullptr) {
+        jclass bridgeClass = LoadBridgeClass(env, ActivityObject);
+        if (bridgeClass != nullptr) {
+            jmethodID stopMethod = env->GetStaticMethodID(bridgeClass, "stop", "()V");
+            if (stopMethod != nullptr) {
+                env->CallStaticVoidMethod(bridgeClass, stopMethod);
+                if (env->ExceptionCheck()) env->ExceptionClear();
+            }
+            env->DeleteLocalRef(bridgeClass);
+        }
+    }
+    if (SurfaceTextureObject != nullptr) {
+        jclass surfaceTextureClass = env->GetObjectClass(SurfaceTextureObject);
+        if (SurfaceDetachFromGlContext != nullptr) {
+            env->CallVoidMethod(SurfaceTextureObject, SurfaceDetachFromGlContext);
+            if (env->ExceptionCheck()) env->ExceptionClear();
+        }
+        env->DeleteLocalRef(surfaceTextureClass);
+    }
+
+    if (ExternalTexture != 0) glDeleteTextures(1, &ExternalTexture);
+    if (Framebuffer != 0) glDeleteFramebuffers(1, &Framebuffer);
+    if (Program != 0) glDeleteProgram(Program);
+    ExternalTexture = 0;
+    Framebuffer = 0;
+    Program = 0;
+
+    if (SurfaceTransformArray != nullptr) {
+        env->DeleteGlobalRef(SurfaceTransformArray);
+        SurfaceTransformArray = nullptr;
+    }
+    if (SurfaceTextureObject != nullptr) {
+        env->DeleteGlobalRef(SurfaceTextureObject);
+        SurfaceTextureObject = nullptr;
+    }
+    if (ActivityObject != nullptr) {
+        env->DeleteGlobalRef(ActivityObject);
+        ActivityObject = nullptr;
+    }
+
+    for (auto& swapchain : Swapchains) {
+        if (swapchain != XR_NULL_HANDLE) {
+            xrDestroySwapchain(swapchain);
+            swapchain = XR_NULL_HANDLE;
+        }
+    }
+}
