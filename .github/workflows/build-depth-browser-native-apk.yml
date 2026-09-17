@@ -1,0 +1,104 @@
+name: Build Quest Depth Browser Native APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ depth-browser-native-v020 ]
+    paths:
+      - '.github/workflows/build-depth-browser-native-apk.yml'
+      - 'QuestDepthBrowserNative/**'
+      - 'scripts/install_android.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quest-depth-browser-native-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_VERSION: '0.2.0'
+  APP_ID: 'com.bvultrex.questdepthbrowser.native'
+  APP_LABEL: 'Quest Depth Browser Native'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout prototype branch
+        uses: actions/checkout@v7
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android command-line tools
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+          log-accepted-android-sdk-licenses: false
+
+      - name: Install Android SDK, NDK and CMake
+        run: bash scripts/install_android.sh
+
+      - name: Checkout Meta OpenXR SDK v85
+        uses: actions/checkout@v7
+        with:
+          repository: meta-quest/Meta-OpenXR-SDK
+          ref: v85
+          path: meta-openxr-sdk
+          fetch-depth: 1
+
+      - name: Apply native depth browser patch
+        run: |
+          python3 -m py_compile QuestDepthBrowserNative/patch_sample.py
+          python3 QuestDepthBrowserNative/patch_sample.py
+          SRC=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusion.cpp
+          NATIVE=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/QuestDepthBrowserNative.cpp
+          JAVA=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/java/com/oculus/xrpassthroughocclusion/QuestDepthBrowserBridge.java
+          grep -n 'QuestDepthBrowserNative nativeBrowser' "$SRC"
+          grep -n 'nativeBrowser.Render' "$SRC"
+          grep -n 'nativeBrowser.MakeLayer(0' "$SRC"
+          grep -n 'XR_EYE_VISIBILITY_LEFT' "$NATIVE"
+          grep -n 'XR_EYE_VISIBILITY_RIGHT' "$NATIVE"
+          grep -n 'samplerExternalOES' "$NATIVE"
+          grep -n 'uEnvironmentDepthTexture' "$NATIVE"
+          grep -n 'createVirtualDisplay' "$JAVA"
+          grep -n 'https://www.wikipedia.org/' "$JAVA"
+
+      - name: Build debug APK
+        working-directory: meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace --no-daemon
+
+      - name: Collect and verify APK
+        run: |
+          set -euo pipefail
+          ROOT='meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion'
+          APK=$(find "$ROOT/Projects/Android" -type f -path '*/build/outputs/apk/*' -name '*debug.apk' | head -n 1)
+          test -n "$APK"
+          mkdir -p dist
+          OUT="dist/Quest-Depth-Browser-Native-v${APP_VERSION}-debug.apk"
+          cp "$APK" "$OUT"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$OUT"
+          "$ANDROID_HOME/build-tools/34.0.0/aapt2" dump badging "$OUT" | tee dist/APK-BADGING.txt
+          grep -q "package: name='${APP_ID}'" dist/APK-BADGING.txt
+          grep -Fq "application: label='${APP_LABEL}'" dist/APK-BADGING.txt
+          cp QuestDepthBrowserNative/CONTROLS.txt dist/CONTROLS.txt
+          cp "$ROOT/Src/QuestDepthBrowserNative.cpp" dist/QuestDepthBrowserNative.patched.cpp
+          cp "$ROOT/Src/XrPassthroughOcclusion.cpp" dist/XrPassthroughOcclusion.patched.cpp
+          cp "$ROOT/java/com/oculus/xrpassthroughocclusion/QuestDepthBrowserBridge.java" dist/QuestDepthBrowserBridge.patched.java
+          (cd dist && sha256sum "Quest-Depth-Browser-Native-v${APP_VERSION}-debug.apk" > SHA256SUMS.txt)
+          ls -lh dist
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: Quest-Depth-Browser-Native-v${{ env.APP_VERSION }}
+          path: dist/
+          if-no-files-found: error
