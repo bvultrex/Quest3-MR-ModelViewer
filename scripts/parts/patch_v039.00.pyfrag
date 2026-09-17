@@ -1,0 +1,161 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v0.3.9: preflight the complete GLB before allocating the large converted
+# vertex/index vectors or replacing the currently displayed GPU model.
+validate_anchor = '''    result = cgltf_validate(data);\n    if (result != cgltf_result_success) {\n        ALOGE("QuestMR: cgltf_validate rejected GLB (%d)", int(result));\n        cgltf_free(data);\n        return false;\n    }\n'''
+if 'QuestMR: preflight geometry=' not in text:
+    if validate_anchor not in text:
+        raise SystemExit('v0.3.9 validate anchor not found')
+    preflight = r'''
+
+    constexpr size_t kMaxTriangles = 4000000;
+    constexpr size_t kMaxTextureEdge = 4096;
+    constexpr uint64_t kMaxTextureGpuBytes = 96ULL * 1024ULL * 1024ULL;
+    constexpr uint64_t kMaxEstimatedGpuBytes = 256ULL * 1024ULL * 1024ULL;
+    constexpr uint64_t kMaxEstimatedCpuImportBytes = 384ULL * 1024ULL * 1024ULL;
+
+    size_t preflightVertices = 0;
+    size_t preflightIndices = 0;
+    size_t preflightTriangles = 0;
+    for (cgltf_size nodeIndex = 0; nodeIndex < data->nodes_count; ++nodeIndex) {
+        const cgltf_node* node = &data->nodes[nodeIndex];
+        if (node->mesh == nullptr) {
+            continue;
+        }
+        for (cgltf_size primitiveIndex = 0;
+             primitiveIndex < node->mesh->primitives_count;
+             ++primitiveIndex) {
+            const cgltf_primitive& primitive = node->mesh->primitives[primitiveIndex];
+            if (primitive.type != cgltf_primitive_type_triangles) {
+                continue;
+            }
+            const cgltf_accessor* positionAccessor = nullptr;
+            for (cgltf_size attrIndex = 0; attrIndex < primitive.attributes_count; ++attrIndex) {
+                if (primitive.attributes[attrIndex].type == cgltf_attribute_type_position) {
+                    positionAccessor = primitive.attributes[attrIndex].data;
+                    break;
+                }
+            }
+            if (positionAccessor == nullptr || positionAccessor->count == 0) {
+                continue;
+            }
+            const size_t vertexCount = static_cast<size_t>(positionAccessor->count);
+            const size_t indexCount = primitive.indices != nullptr
+                ? static_cast<size_t>(primitive.indices->count)
+                : vertexCount;
+            if (indexCount < 3 || (indexCount % 3) != 0 ||
+                vertexCount > kMaxVertices || preflightVertices > kMaxVertices - vertexCount ||
+                indexCount > kMaxIndices || preflightIndices > kMaxIndices - indexCount) {
+                ALOGE("QuestMR: preflight rejected geometry beyond mesh budget");
+                cgltf_free(data);
+                return false;
+            }
+            preflightVertices += vertexCount;
+            preflightIndices += indexCount;
+            preflightTriangles += indexCount / 3;
+            if (preflightTriangles > kMaxTriangles) {
+                ALOGE("QuestMR: preflight rejected >4M triangles");
+                cgltf_free(data);
+                return false;
+            }
+        }
+    }
+
+    uint64_t textureGpuBytes = 0;
+    uint64_t maxDecodedTextureBytes = 0;
+    for (cgltf_size imageIndex = 0; imageIndex < data->images_count; ++imageIndex) {
+        const cgltf_image& image = data->images[imageIndex];
+        if (image.buffer_view == nullptr || image.buffer_view->size == 0) {
+            continue;
+        }
+        const uint8_t* encoded = cgltf_buffer_view_data(image.buffer_view);
+        if (encoded == nullptr || image.buffer_view->size > static_cast<cgltf_size>(std::numeric_limits<int>::max())) {
+            ALOGE("QuestMR: preflight rejected unreadable embedded texture");
+            cgltf_free(data);
+            return false;
+        }
+        int width = 0;
+        int height = 0;
+        int components = 0;
+        if (!stbi_info_from_memory(
+                encoded,
+                static_cast<int>(image.buffer_view->size),
+                &width,
+                &height,
+                &components) ||
+            width <= 0 || height <= 0 ||
+            width > static_cast<int>(kMaxTextureEdge) ||
+            height > static_cast<int>(kMaxTextureEdge)) {
+            ALOGE("QuestMR: preflight rejected texture dimensions");
+            cgltf_free(data);
+            return false;
+        }
+        const uint64_t rawBytes =
+            static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4ULL;
+        const uint64_t mipBytes = rawBytes + (rawBytes / 3ULL) + 4096ULL;
+        if (mipBytes > kMaxTextureGpuBytes ||
+            textureGpuBytes > kMaxTextureGpuBytes - mipBytes) {
+            ALOGE("QuestMR: preflight rejected texture memory budget");
+            cgltf_free(data);
+            return false;
+        }
+        textureGpuBytes += mipBytes;
+        maxDecodedTextureBytes = std::max(maxDecodedTextureBytes, rawBytes);
+    }
+
+    const uint64_t geometryBytes =
+        static_cast<uint64_t>(preflightVertices) * sizeof(QuestMrImportedVertex) +
+        static_cast<uint64_t>(preflightIndices) * sizeof(uint32_t);
+    const uint64_t estimatedGpuBytes = geometryBytes + textureGpuBytes;
+    const uint64_t estimatedCpuImportBytes =
+        static_cast<uint64_t>(fileStat.st_size) + geometryBytes + maxDecodedTextureBytes;
+    if (estimatedGpuBytes > kMaxEstimatedGpuBytes ||
+        estimatedCpuImportBytes > kMaxEstimatedCpuImportBytes) {
+        ALOGE(
+            "QuestMR: preflight rejected memory estimate cpu=%llu gpu=%llu",
+            static_cast<unsigned long long>(estimatedCpuImportBytes),
+            static_cast<unsigned long long>(estimatedGpuBytes));
+        cgltf_free(data);
+        return false;
+    }
+
+    ALOGV(
+        "QuestMR: preflight geometry=%zu vertices/%zu indices/%zu triangles cpu=%lluMiB gpu=%lluMiB textures=%lluMiB",
+        preflightVertices,
+        preflightIndices,
+        preflightTriangles,
+        static_cast<unsigned long long>(estimatedCpuImportBytes / (1024ULL * 1024ULL)),
+        static_cast<unsigned long long>(estimatedGpuBytes / (1024ULL * 1024ULL)),
+        static_cast<unsigned long long>(textureGpuBytes / (1024ULL * 1024ULL)));
+'''
+    text = text.replace(validate_anchor, validate_anchor + preflight, 1)
+
+# Once CPU validation/conversion has succeeded, release the previous model
+# before allocating the new model's textures and GPU buffers. This avoids a
+# large old+new GPU residency spike when replacing high-detail models.
+texture_anchor = '''    if (!std::isfinite(maxExtent) || maxExtent < 0.000001f || maxExtent > 1000000.0f) {\n        ALOGE("QuestMR: rejected nonsensical model extent=%f", maxExtent);\n        cgltf_free(data);\n        return false;\n    }\n\n    GLuint baseColorTexture = 0;\n'''
+if '// v0.3.9 peak-memory guard' not in text:
+    if texture_anchor not in text:
+        raise SystemExit('v0.3.9 texture upload anchor not found')
+    text = text.replace(
+        texture_anchor,
+        texture_anchor.replace(
+            '    GLuint baseColorTexture = 0;\n',
+            '    // v0.3.9 peak-memory guard: validated CPU data is ready. Free the old GPU model now.\n'
+            '    QuestMrDestroyImportedMesh();\n\n'
+            '    GLuint baseColorTexture = 0;\n'),
+        1,
+    )
+    old_destroy = '    cgltf_free(data);\n\n    QuestMrDestroyImportedMesh();\n\n    GL(glGenVertexArrays(1, &gQuestMrImportedMesh.vao));'
+    new_destroy = '    cgltf_free(data);\n\n    GL(glGenVertexArrays(1, &gQuestMrImportedMesh.vao));'
+    if old_destroy not in text:
+        raise SystemExit('v0.3.9 old destroy anchor not found')
+    text = text.replace(old_destroy, new_destroy, 1)
+
+cpp.write_text(text)
+print('v0.3.9 GLB preflight + memory budgets: ON')
+print('v0.3.9 4M triangle / 96MiB texture / 256MiB GPU estimate guard: ON')
+print('v0.3.9 previous model freed before new GPU allocation: ON')
