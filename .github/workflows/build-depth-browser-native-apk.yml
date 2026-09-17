@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '0.2.6'
+  APP_VERSION: '0.2.7'
   APP_ID: 'com.bvultrex.questdepthbrowser.native'
   APP_LABEL: 'Quest Depth Browser Native'
 
@@ -73,6 +73,8 @@ jobs:
           python3 QuestDepthBrowserNative/v026/patch_v026.py
           python3 -m py_compile QuestDepthBrowserNative/v026/patch_v026b.py
           python3 QuestDepthBrowserNative/v026/patch_v026b.py
+          python3 -m py_compile QuestDepthBrowserNative/v027/patch_v027.py
+          python3 QuestDepthBrowserNative/v027/patch_v027.py
 
           ROOT=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion
           SRC="$ROOT/Src/XrPassthroughOcclusion.cpp"
@@ -85,6 +87,8 @@ jobs:
           grep -n 'leftGripState' "$INPUT"
           grep -n 'leftBrowserAimPose' "$SRC"
           grep -n 'useLeftHand' "$SRC"
+          grep -n '"toggle"' "$INPUT"
+          grep -n 'handSubactionPaths' "$INPUT"
           grep -n 'resizeCorner' "$NATIVE"
           grep -n 'centered 84% capture-safe viewport' "$NATIVE"
           grep -n 'safeScale = 0.84f' "$JAVA"
