@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '0.1.3'
+  APP_VERSION: '0.1.4'
 
 jobs:
   build:
@@ -66,17 +66,19 @@ jobs:
           python3 /tmp/patch_depth_browser.py
           SRC=meta-spatial-samples/MediaPlayerSample/app/src/main/java/com/meta/spatial/samples/mediaplayersample/QuestDepthBrowserActivity.kt
           grep -n 'com.bvultrex.questdepthbrowser' meta-spatial-samples/MediaPlayerSample/app/build.gradle.kts
-          grep -n 'versionName = "0.1.3"' meta-spatial-samples/MediaPlayerSample/app/build.gradle.kts
+          grep -n 'versionName = "0.1.4"' meta-spatial-samples/MediaPlayerSample/app/build.gradle.kts
           grep -n 'QuestDepthBrowserActivity' meta-spatial-samples/MediaPlayerSample/app/src/main/AndroidManifest.xml
           grep -n 'EnvironmentDepthMode.OCCLUSION' "$SRC"
           grep -n 'PanelRenderMode.Mesh' "$SRC"
           grep -n 'RenderConfiguration(1.5f)' "$SRC"
+          grep -n 'mips = 1' "$SRC"
+          grep -n 'SamplerConfig(lodBias = -1.0f)' "$SRC"
           if grep -q 'enableHolePunching(true)' "$SRC"; then
-            echo 'v0.1.3 must not use hole punching' >&2
+            echo 'v0.1.4 must not use hole punching' >&2
             exit 1
           fi
           if grep -q 'PanelRenderMode.Layer' "$SRC"; then
-            echo 'v0.1.3 must not use compositor layer rendering' >&2
+            echo 'v0.1.4 must not use compositor layer rendering' >&2
             exit 1
           fi
 
