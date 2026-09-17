@@ -29,6 +29,7 @@ run_fragmented_patch patch_v037
 run_fragmented_patch patch_v038
 run_fragmented_patch patch_v039
 run_fragmented_patch patch_v040
+run_fragmented_patch patch_v041
 
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
@@ -45,9 +46,10 @@ grep -n 'RotationY(modelYaw)' "$SRC"
 grep -n 'uiTriggerPressed' "$SRC"
 grep -n 'kMaxFileBytes = 192LL' "$SRC"
 grep -n 'preflight geometry=' "$SRC"
-grep -n 'kMaxTriangles = 1000000' "$SRC"
+grep -n 'kMaxTriangles = 4000000' "$SRC"
 grep -n 'safe boot ignored persisted GLB' "$SRC"
 grep -n 'peak-memory guard' "$SRC"
 grep -n 'returnToViewer' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
 grep -n 'QUESTMR_V039_VISIBLE_PICKER' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
+grep -n 'QUESTMR_V041_CLEAR_STALE_IMPORT' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
 grep -n 'Theme.Material.NoActionBar' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/AndroidManifest.xml
