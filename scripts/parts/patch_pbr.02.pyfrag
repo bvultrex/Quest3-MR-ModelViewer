@@ -1,0 +1,185 @@
+                    const float nx = world[0] * n[0] + world[4] * n[1] + world[8] * n[2];
+                    const float ny = world[1] * n[0] + world[5] * n[1] + world[9] * n[2];
+                    const float nz = world[2] * n[0] + world[6] * n[1] + world[10] * n[2];
+                    const float nLen = std::sqrt(nx * nx + ny * ny + nz * nz);
+                    if (std::isfinite(nLen) && nLen > 0.000001f) {
+                        v.normal[0] = nx / nLen;
+                        v.normal[1] = ny / nLen;
+                        v.normal[2] = nz / nLen;
+                    }
+                }
+
+                if (uvAccessor != nullptr) {
+                    cgltf_float uv[2] = {0.0f, 0.0f};
+                    if (!cgltf_accessor_read_float(uvAccessor, vertexIndex, uv, 2) ||
+                        !std::isfinite(uv[0]) || !std::isfinite(uv[1])) {
+                        primitiveOk = false;
+                        break;
+                    }
+                    v.uv[0] = uv[0];
+                    v.uv[1] = uv[1];
+                }
+
+                for (int c = 0; c < 4; ++c) {
+                    const float safeColor = std::isfinite(baseColor[c]) ? baseColor[c] : 1.0f;
+                    const float clamped = std::max(0.0f, std::min(1.0f, safeColor));
+                    v.color[c] = static_cast<unsigned char>(clamped * 255.0f + 0.5f);
+                }
+                vertices.push_back(v);
+            }
+
+            if (primitiveOk) {
+                if (primitive.indices != nullptr) {
+                    for (cgltf_size index = 0; index < primitive.indices->count; ++index) {
+                        const cgltf_size localIndex = cgltf_accessor_read_index(primitive.indices, index);
+                        if (localIndex >= positionAccessor->count) {
+                            primitiveOk = false;
+                            break;
+                        }
+                        indices.push_back(vertexBase + static_cast<uint32_t>(localIndex));
+                    }
+                } else {
+                    for (cgltf_size index = 0; index < positionAccessor->count; ++index) {
+                        indices.push_back(vertexBase + static_cast<uint32_t>(index));
+                    }
+                }
+            }
+
+            if (!primitiveOk || vertices.size() != vertexStart + primitiveVertexCount ||
+                indices.size() != indexStart + primitiveIndexCount) {
+                vertices.resize(vertexStart);
+                indices.resize(indexStart);
+                ++skippedPrimitives;
+                continue;
+            }
+
+            if (!materialChosen) {
+                selectedMaterial = primitive.material;
+                materialChosen = true;
+            }
+
+            for (size_t vIndex = vertexStart; vIndex < vertices.size(); ++vIndex) {
+                const QuestMrImportedVertex& v = vertices[vIndex];
+                for (int axis = 0; axis < 3; ++axis) {
+                    minP[axis] = std::min(minP[axis], v.position[axis]);
+                    maxP[axis] = std::max(maxP[axis], v.position[axis]);
+                }
+            }
+            ++acceptedPrimitives;
+        }
+    }
+
+    if (acceptedPrimitives == 0 || vertices.empty() || indices.empty()) {
+        ALOGE("QuestMR: no safe triangle POSITION geometry found; skipped=%zu", skippedPrimitives);
+        cgltf_free(data);
+        return false;
+    }
+
+    const float extentX = maxP[0] - minP[0];
+    const float extentY = maxP[1] - minP[1];
+    const float extentZ = maxP[2] - minP[2];
+    const float maxExtent = std::max(extentX, std::max(extentY, extentZ));
+    if (!std::isfinite(maxExtent) || maxExtent < 0.000001f || maxExtent > 1000000.0f) {
+        ALOGE("QuestMR: rejected nonsensical model extent=%f", maxExtent);
+        cgltf_free(data);
+        return false;
+    }
+
+    GLuint baseColorTexture = 0;
+    GLuint normalTexture = 0;
+    GLuint metallicRoughnessTexture = 0;
+    bool hasBaseColorTexture = false;
+    bool hasNormalTexture = false;
+    bool hasMetallicRoughnessTexture = false;
+    float metallicFactor = 1.0f;
+    float roughnessFactor = 1.0f;
+    float normalScale = 1.0f;
+
+    if (selectedMaterial != nullptr) {
+        if (selectedMaterial->has_pbr_metallic_roughness) {
+            const cgltf_pbr_metallic_roughness& pbr = selectedMaterial->pbr_metallic_roughness;
+            metallicFactor = std::isfinite(pbr.metallic_factor) ? pbr.metallic_factor : 1.0f;
+            roughnessFactor = std::isfinite(pbr.roughness_factor) ? pbr.roughness_factor : 1.0f;
+            hasBaseColorTexture = QuestMrUploadTextureView(
+                pbr.base_color_texture,
+                baseColorTexture,
+                "baseColor");
+            hasMetallicRoughnessTexture = QuestMrUploadTextureView(
+                pbr.metallic_roughness_texture,
+                metallicRoughnessTexture,
+                "metallicRoughness");
+        }
+        normalScale = std::isfinite(selectedMaterial->normal_texture.scale)
+            ? selectedMaterial->normal_texture.scale
+            : 1.0f;
+        hasNormalTexture = QuestMrUploadTextureView(
+            selectedMaterial->normal_texture,
+            normalTexture,
+            "normal");
+    }
+
+    cgltf_free(data);
+
+    QuestMrDestroyImportedMesh();
+
+    GL(glGenVertexArrays(1, &gQuestMrImportedMesh.vao));
+    GL(glBindVertexArray(gQuestMrImportedMesh.vao));
+    GL(glGenBuffers(1, &gQuestMrImportedMesh.vbo));
+    GL(glBindBuffer(GL_ARRAY_BUFFER, gQuestMrImportedMesh.vbo));
+    GL(glBufferData(
+        GL_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(vertices.size() * sizeof(QuestMrImportedVertex)),
+        vertices.data(),
+        GL_STATIC_DRAW));
+
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_POSITION));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_POSITION,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, position))));
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_COLOR));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_COLOR,
+        4,
+        GL_UNSIGNED_BYTE,
+        GL_TRUE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, color))));
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_UV));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_UV,
+        2,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, uv))));
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_NORMAL));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_NORMAL,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, normal))));
+
+    GL(glGenBuffers(1, &gQuestMrImportedMesh.ibo));
+    GL(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gQuestMrImportedMesh.ibo));
+    GL(glBufferData(
+        GL_ELEMENT_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(indices.size() * sizeof(uint32_t)),
+        indices.data(),
+        GL_STATIC_DRAW));
+    GL(glBindVertexArray(0));
+
+    gQuestMrImportedMesh.indexCount = static_cast<GLsizei>(indices.size());
+    for (int axis = 0; axis < 3; ++axis) {
+        gQuestMrImportedMesh.center[axis] = (minP[axis] + maxP[axis]) * 0.5f;
+    }
+    gQuestMrImportedMesh.fitScale = 0.34f / maxExtent;
+    gQuestMrImportedMesh.baseColorTexture = baseColorTexture;
+    gQuestMrImportedMesh.normalTexture = normalTexture;
+    gQuestMrImportedMesh.metallicRoughnessTexture = metallicRoughnessTexture;
+    gQuestMrImportedMesh.hasBaseColorTexture = hasBaseColorTexture;
