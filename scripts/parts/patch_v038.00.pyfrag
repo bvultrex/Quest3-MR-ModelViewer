@@ -1,19 +1,37 @@
 from pathlib import Path
 
-cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+src_dir = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src')
+cpp = src_dir / 'XrPassthroughOcclusionGl.cpp'
 text = cpp.read_text()
 
 # ---------------------------------------------------------------------------
 # v0.3.8 UI interaction: proximity is hover only. Buttons require a trigger
 # edge; sliders require holding the trigger while dragging.
+#
+# Keep OpenXR action types out of the renderer translation unit. The input
+# module already owns boolState and is linked into this target, so expose only
+# a tiny C bridge returning a plain bool.
 # ---------------------------------------------------------------------------
+input_cpp = src_dir / 'XrPassthroughOcclusionInput.cpp'
+input_text = input_cpp.read_text()
+input_anchor = 'XrActionStateBoolean boolState;\n'
+if 'QuestMrTriggerDown' not in input_text:
+    if input_anchor not in input_text:
+        raise SystemExit('boolState input anchor not found')
+    input_text = input_text.replace(
+        input_anchor,
+        input_anchor + '''\nextern "C" bool QuestMrTriggerDown() {\n    return boolState.isActive != XR_FALSE && boolState.currentState != XR_FALSE;\n}\n''',
+        1,
+    )
+    input_cpp.write_text(input_text)
+
 extern_anchor = '''#if defined(ANDROID)\nextern "C" struct android_app* QuestMrGetAndroidApp();\n#endif\n'''
-if 'extern XrActionStateBoolean boolState;' not in text:
+if 'extern "C" bool QuestMrTriggerDown();' not in text:
     if extern_anchor not in text:
         raise SystemExit('android app bridge anchor not found')
     text = text.replace(
         extern_anchor,
-        extern_anchor + '\n// Input state is owned by XrPassthroughOcclusionInput.cpp.\nextern XrActionStateBoolean boolState;\n',
+        extern_anchor + '\n// Trigger state bridge owned by XrPassthroughOcclusionInput.cpp.\nextern "C" bool QuestMrTriggerDown();\n',
         1,
     )
 
@@ -29,7 +47,7 @@ if 'const bool uiTriggerDown' not in text:
         raise SystemExit('pointer interaction anchor not found')
     text = text.replace(
         pointer_anchor,
-        '    const bool uiTriggerDown = boolState.isActive == XR_TRUE && boolState.currentState == XR_TRUE;\n'
+        '    const bool uiTriggerDown = QuestMrTriggerDown();\n'
         '    const bool uiTriggerPressed = uiTriggerDown && !uiTriggerPrev;\n\n' + pointer_anchor,
         1,
     )
@@ -135,5 +153,6 @@ activity.write_text(java)
 
 print('v0.3.8 hover-only proximity: ON')
 print('v0.3.8 trigger-click buttons / trigger-drag sliders: ON')
+print('v0.3.8 plain-bool trigger bridge: ON')
 print('v0.3.8 picker auto-return to XR viewer: ON')
 print('v0.3.8 import guard: 192 MiB / 3M vertices / 12M indices')
