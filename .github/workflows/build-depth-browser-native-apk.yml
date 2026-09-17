@@ -83,7 +83,7 @@ jobs:
           grep -n 'setWindowAspect' "$JAVA"
           grep -n 'Adressleiste einklappen' "$JAVA"
           grep -n 'Native-Quest-style resize affordances' "$JAVA"
-          grep -n 'DE QWERTZ' "$JAVA"
+          grep -n 'germanTextFor' "$JAVA"
           grep -n 'Theme_Material_Light_NoActionBar_Fullscreen' "$JAVA"
           grep -n 'createBrowserUi(presentation.getContext())' "$JAVA"
           grep -n 'dispatchKeyEvent' "$ACTIVITY"
