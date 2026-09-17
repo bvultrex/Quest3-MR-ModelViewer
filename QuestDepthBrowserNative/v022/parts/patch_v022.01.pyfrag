@@ -1,0 +1,61 @@
+new_grip_block = '''    static bool resizeActive = false;
+    static float resizeStartControllerY = 0.0f;
+    static float resizeStartWidth = 1.0f;
+
+    if (gripPressed) {
+        if (!GripWasPressed) {
+            GrabDistance = std::max(
+                0.45f,
+                std::min(3.0f, Distance3(PanelCenter, aimPose.position)));
+        }
+
+        const bool resizeGesture = triggerPressed;
+        if (resizeGesture) {
+            if (!resizeActive) {
+                resizeActive = true;
+                resizeStartControllerY = aimPose.position.y;
+                resizeStartWidth = PanelWidthMeters;
+            }
+            const float verticalDelta = aimPose.position.y - resizeStartControllerY;
+            const float scaleFactor = std::exp(verticalDelta * 2.2f);
+            PanelWidthMeters = std::max(
+                0.45f,
+                std::min(2.20f, resizeStartWidth * scaleFactor));
+            PanelHeightMeters = PanelWidthMeters *
+                (static_cast<float>(TextureHeight) / static_cast<float>(TextureWidth));
+        } else {
+            resizeActive = false;
+            PanelCenter = {
+                aimPose.position.x + forward.x * GrabDistance,
+                aimPose.position.y + forward.y * GrabDistance,
+                aimPose.position.z + forward.z * GrabDistance};
+
+            if (std::abs(thumbstickY) > 0.15f) {
+                const float scaleStep = 1.0f + thumbstickY * 0.008f;
+                PanelWidthMeters = std::max(
+                    0.45f,
+                    std::min(2.20f, PanelWidthMeters * scaleStep));
+                PanelHeightMeters = PanelWidthMeters *
+                    (static_cast<float>(TextureHeight) / static_cast<float>(TextureWidth));
+            }
+        }
+
+        if (HidePointerMethod != nullptr) {
+            env->CallStaticVoidMethod(BridgeClass, HidePointerMethod);
+            if (env->ExceptionCheck()) env->ExceptionClear();
+        }
+        PointerWasInside = false;
+        TriggerWasPressed = triggerPressed;
+        GripWasPressed = true;
+        return;
+    }
+    resizeActive = false;
+'''
+cpp = replace_once(cpp, old_grip_block, new_grip_block, 'grip/resize interaction')
+cpp_path.write_text(cpp)
+
+print('Quest Depth Browser Native v0.2.2 patch applied')
+print('VirtualDisplay UI: fullscreen/no-title/display-context')
+print('Initial panel width: 1.00 m')
+print('Resize: hold right Grip + Trigger and move controller vertically')
+print('Thumbstick resize remains as fallback')
