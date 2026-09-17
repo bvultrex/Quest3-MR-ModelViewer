@@ -1,0 +1,139 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# ---------------------------------------------------------------------------
+# v0.3.8 UI interaction: proximity is hover only. Buttons require a trigger
+# edge; sliders require holding the trigger while dragging.
+# ---------------------------------------------------------------------------
+extern_anchor = '''#if defined(ANDROID)\nextern "C" struct android_app* QuestMrGetAndroidApp();\n#endif\n'''
+if 'extern XrActionStateBoolean boolState;' not in text:
+    if extern_anchor not in text:
+        raise SystemExit('android app bridge anchor not found')
+    text = text.replace(
+        extern_anchor,
+        extern_anchor + '\n// Input state is owned by XrPassthroughOcclusionInput.cpp.\nextern XrActionStateBoolean boolState;\n',
+        1,
+    )
+
+state_anchor = '    static bool modelMoveTouchPrev = false;\n'
+if 'static bool uiTriggerPrev' not in text:
+    if state_anchor not in text:
+        raise SystemExit('UI state anchor not found')
+    text = text.replace(state_anchor, state_anchor + '    static bool uiTriggerPrev = false;\n', 1)
+
+pointer_anchor = '    if (havePointer) {\n        const float dx = pointerTipMatrix.M[0][3] - panelPose.M[0][3];'
+if 'const bool uiTriggerDown' not in text:
+    if pointer_anchor not in text:
+        raise SystemExit('pointer interaction anchor not found')
+    text = text.replace(
+        pointer_anchor,
+        '    const bool uiTriggerDown = boolState.isActive == XR_TRUE && boolState.currentState == XR_TRUE;\n'
+        '    const bool uiTriggerPressed = uiTriggerDown && !uiTriggerPrev;\n\n' + pointer_anchor,
+        1,
+    )
+
+replacements = {
+'''                if (std::abs(localY - rowY) < 0.014f &&
+                    localX >= minX - 0.010f && localX <= maxX + 0.010f) {''':
+'''                if (uiTriggerDown && std::abs(localY - rowY) < 0.014f &&
+                    localX >= minX - 0.010f && localX <= maxX + 0.010f) {''',
+'''            if (materialTouchNow && !materialTouchPrev) {''':
+'''            if (materialTouchNow && uiTriggerPressed) {''',
+'''            if (modelMoveTouchNow && !modelMoveTouchPrev && importedModelPlaced) {''':
+'''            if (modelMoveTouchNow && uiTriggerPressed && importedModelPlaced) {''',
+'''            if (std::abs(localY - kModelScaleY) < 0.014f &&
+                localX >= modelMinX - 0.010f && localX <= modelMaxX + 0.010f) {''':
+'''            if (uiTriggerDown && std::abs(localY - kModelScaleY) < 0.014f &&
+                localX >= modelMinX - 0.010f && localX <= modelMaxX + 0.010f) {''',
+'''            if (std::abs(localY - kModelRotateY) < 0.014f &&
+                localX >= modelMinX - 0.010f && localX <= modelMaxX + 0.010f) {''':
+'''            if (uiTriggerDown && std::abs(localY - kModelRotateY) < 0.014f &&
+                localX >= modelMinX - 0.010f && localX <= modelMaxX + 0.010f) {''',
+'''            if (resetTouchNow && !resetTouchPrev) {''':
+'''            if (resetTouchNow && uiTriggerPressed) {''',
+'''            if (pinTouchNow && !pinTouchPrev) {''':
+'''            if (pinTouchNow && uiTriggerPressed) {''',
+'''            if (importTouchNow && !importTouchPrev) {''':
+'''            if (importTouchNow && uiTriggerPressed) {''',
+}
+for old, new in replacements.items():
+    if old not in text:
+        raise SystemExit('UI interaction anchor missing: ' + old.splitlines()[0].strip())
+    text = text.replace(old, new, 1)
+
+latch_anchor = '''    bool importChanged = false;
+    const bool modelLoaded = QuestMrPollImportFile(importChanged);'''
+if 'uiTriggerPrev = uiTriggerDown;' not in text:
+    if latch_anchor not in text:
+        raise SystemExit('trigger latch anchor not found')
+    text = text.replace(latch_anchor, '    uiTriggerPrev = uiTriggerDown;\n\n' + latch_anchor, 1)
+
+# ---------------------------------------------------------------------------
+# Higher-detail test budget. This is only an import guard, not a performance
+# promise; it leaves room for the user's next higher-poly Quest tests.
+# ---------------------------------------------------------------------------
+budget_replacements = {
+    'constexpr long long kMaxFileBytes = 64LL * 1024LL * 1024LL;':
+        'constexpr long long kMaxFileBytes = 192LL * 1024LL * 1024LL;',
+    'constexpr size_t kMaxVertices = 750000;':
+        'constexpr size_t kMaxVertices = 3000000;',
+    'constexpr size_t kMaxIndices = 2250000;':
+        'constexpr size_t kMaxIndices = 12000000;',
+}
+for old, new in budget_replacements.items():
+    if old not in text:
+        raise SystemExit('import budget anchor missing: ' + old)
+    text = text.replace(old, new, 1)
+
+cpp.write_text(text)
+
+# ---------------------------------------------------------------------------
+# Android Storage Access Framework return path. Quest can pause the XR
+# NativeActivity while the document picker is open. Bring the launch Activity
+# back to the foreground explicitly after selection/cancel instead of leaving
+# the user in the shell and requiring a manual reopen.
+# ---------------------------------------------------------------------------
+activity = Path(
+    'meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/'
+    'questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java'
+)
+java = activity.read_text()
+
+if '64L * 1024L * 1024L' in java:
+    java = java.replace('64L * 1024L * 1024L', '192L * 1024L * 1024L', 1)
+java = java.replace('GLB exceeds 64 MiB safety limit', 'GLB exceeds 192 MiB safety limit')
+
+if 'private void returnToViewer()' not in java:
+    # Convert all existing picker exits first. The helper inserted afterwards
+    # keeps a real finish() and therefore cannot recurse.
+    java = java.replace('finish();', 'returnToViewer();')
+    helper_anchor = '    private static final long MAX_IMPORT_BYTES = 192L * 1024L * 1024L;\n'
+    if helper_anchor not in java:
+        raise SystemExit('picker MAX_IMPORT_BYTES anchor not found')
+    helper = r'''
+
+    private void returnToViewer() {
+        try {
+            Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
+            if (launch != null) {
+                launch.addFlags(
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP |
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                startActivity(launch);
+            }
+        } catch (Exception ignored) {
+        }
+        finish();
+    }
+'''
+    java = java.replace(helper_anchor, helper_anchor + helper, 1)
+
+activity.write_text(java)
+
+print('v0.3.8 hover-only proximity: ON')
+print('v0.3.8 trigger-click buttons / trigger-drag sliders: ON')
+print('v0.3.8 picker auto-return to XR viewer: ON')
+print('v0.3.8 import guard: 192 MiB / 3M vertices / 12M indices')
