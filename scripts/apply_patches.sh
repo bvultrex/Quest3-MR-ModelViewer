@@ -30,6 +30,7 @@ run_fragmented_patch patch_v038
 run_fragmented_patch patch_v039
 run_fragmented_patch patch_v040
 run_fragmented_patch patch_v041
+run_fragmented_patch patch_v042
 
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
@@ -46,7 +47,8 @@ grep -n 'RotationY(modelYaw)' "$SRC"
 grep -n 'uiTriggerPressed' "$SRC"
 grep -n 'kMaxFileBytes = 192LL' "$SRC"
 grep -n 'preflight geometry=' "$SRC"
-grep -n 'kMaxTriangles = 4000000' "$SRC"
+grep -n 'kMaxTriangles = 2000000' "$SRC"
+grep -n 'kMaxTextureGpuBytes = 160ULL' "$SRC"
 grep -n 'safe boot ignored persisted GLB' "$SRC"
 grep -n 'peak-memory guard' "$SRC"
 grep -n 'returnToViewer' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
