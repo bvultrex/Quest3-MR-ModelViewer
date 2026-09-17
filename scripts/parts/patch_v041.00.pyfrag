@@ -1,0 +1,41 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v0.3.11: restore the proven high-detail budget. v0.3.10 showed that the
+# startup regression came from stale persisted auto-load, not from 3M runtime
+# rendering itself. Keep the safe-boot latch, remove only the temporary 1M cap.
+old_tri = 'constexpr size_t kMaxTriangles = 1000000;'
+new_tri = 'constexpr size_t kMaxTriangles = 4000000;'
+if old_tri not in text:
+    raise SystemExit('v0.3.11 1M triangle guard anchor not found')
+text = text.replace(old_tri, new_tri, 1)
+text = text.replace(
+    'QuestMR: preflight rejected >1M triangles in synchronous safe mode',
+    'QuestMR: preflight rejected >4M triangles',
+    1,
+)
+cpp.write_text(text)
+
+# Make each picker action an explicit fresh-import transaction. Remove the old
+# cached app-private GLB when the picker opens. The currently rendered GPU mesh
+# is unaffected; if the user cancels, no stale file can be mistaken for a new
+# import. A successful selection creates a brand-new target file which the
+# native poller can safely detect after the picker returns.
+activity = Path(
+    'meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/'
+    'questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java'
+)
+java = activity.read_text()
+anchor = '''    protected void onCreate(Bundle savedInstanceState) {\n        super.onCreate(savedInstanceState);\n'''
+if '// QUESTMR_V041_CLEAR_STALE_IMPORT' not in java:
+    if anchor not in java:
+        raise SystemExit('v0.3.11 picker onCreate anchor not found')
+    clear_cache = '''    protected void onCreate(Bundle savedInstanceState) {\n        super.onCreate(savedInstanceState);\n\n        // QUESTMR_V041_CLEAR_STALE_IMPORT\n        // A picker action always starts a fresh import transaction. Deleting\n        // the cached source file does not affect an already uploaded GPU mesh.\n        try {\n            File staleTarget = new File(getFilesDir(), "questmr_import.glb");\n            File staleTemp = new File(getFilesDir(), "questmr_import.tmp");\n            if (staleTarget.exists()) {\n                staleTarget.delete();\n            }\n            if (staleTemp.exists()) {\n                staleTemp.delete();\n            }\n        } catch (Exception ignored) {\n        }\n'''
+    java = java.replace(anchor, clear_cache, 1)
+activity.write_text(java)
+
+print('v0.3.11 persisted GLB startup auto-load: still DISABLED')
+print('v0.3.11 picker clears stale cached source before selection: ON')
+print('v0.3.11 high-detail guard restored: 4,000,000 triangles')
