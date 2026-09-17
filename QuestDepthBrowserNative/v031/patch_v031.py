@@ -36,11 +36,13 @@ activity_xml = '''    <activity
         android:launchMode="singleTop"
         android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden|keyboard|navigation|uiMode|density" />
 '''
-manifest = rep(
-    manifest,
-    '    <!-- launchMode is set to singleTask because there should never be multiple copies of the\\n',
-    activity_xml + '    <!-- launchMode is set to singleTask because there should never be multiple copies of the\\n',
-    'surface activity manifest')
+if 'QuestDepthBrowserSurfaceActivity' not in manifest:
+    if '</application>' not in manifest:
+        raise SystemExit('v0.3.1 manifest has no application closing tag')
+    manifest = manifest.replace(
+        '  </application>',
+        activity_xml + '  </application>',
+        1)
 manifest_path.write_text(manifest)
 
 bridge_path = JAVA / 'QuestDepthBrowserBridge.java'
