@@ -1,0 +1,160 @@
+from pathlib import Path
+
+ROOT = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion')
+SRC = ROOT / 'Src'
+JAVA = ROOT / 'java/com/oculus/xrpassthroughocclusion'
+ANDROID = ROOT / 'Projects/Android'
+
+
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    if old not in text:
+        raise SystemExit(f'v0.2.2 anchor missing: {label}')
+    return text.replace(old, new, 1)
+
+# Version bump.
+gradle_path = ANDROID / 'build.gradle'
+gradle = gradle_path.read_text()
+gradle = replace_once(gradle, 'versionCode 21', 'versionCode 22', 'Gradle versionCode')
+gradle = replace_once(gradle, 'versionName "0.2.1"', 'versionName "0.2.2"', 'Gradle versionName')
+gradle_path.write_text(gradle)
+
+manifest_path = ANDROID / 'AndroidManifest.xml'
+manifest = manifest_path.read_text()
+manifest = replace_once(manifest, 'android:versionCode="21"', 'android:versionCode="22"', 'manifest versionCode')
+manifest = replace_once(manifest, 'android:versionName="0.2.1"', 'android:versionName="0.2.2"', 'manifest versionName')
+manifest_path.write_text(manifest)
+
+# ---------------------------------------------------------------------------
+# Fullscreen VirtualDisplay UI. The Presentation context is display-aware,
+# unlike the primary Activity context. This prevents density/window-decor
+# mismatches that can crop or scale the browser texture incorrectly.
+# ---------------------------------------------------------------------------
+bridge_path = JAVA / 'QuestDepthBrowserBridge.java'
+bridge = bridge_path.read_text()
+bridge = replace_once(
+    bridge,
+    'import android.graphics.Color;\n',
+    'import android.graphics.Color;\nimport android.graphics.drawable.ColorDrawable;\n',
+    'ColorDrawable import')
+bridge = replace_once(
+    bridge,
+    'import android.view.ViewGroup;\n',
+    'import android.view.ViewGroup;\nimport android.view.Window;\nimport android.view.WindowManager;\n',
+    'Window imports')
+
+old_presentation = '''                presentation = new Presentation(activity, virtualDisplay.getDisplay());
+                presentation.setContentView(createBrowserUi(activity));
+                presentation.show();
+                webView.loadUrl("https://www.wikipedia.org/");
+'''
+new_presentation = '''                presentation = new Presentation(
+                        activity,
+                        virtualDisplay.getDisplay(),
+                        android.R.style.Theme_Material_Light_NoActionBar_Fullscreen);
+                presentation.requestWindowFeature(Window.FEATURE_NO_TITLE);
+                presentation.setContentView(createBrowserUi(presentation.getContext()));
+
+                Window window = presentation.getWindow();
+                if (window != null) {
+                    window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+                    window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
+                    window.getDecorView().setSystemUiVisibility(
+                            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY |
+                            View.SYSTEM_UI_FLAG_FULLSCREEN |
+                            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
+                            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
+                            View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+                }
+
+                presentation.show();
+                if (window != null) {
+                    window.setLayout(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT);
+                }
+                if (rootFrame != null) {
+                    rootFrame.post(() -> {
+                        rootFrame.requestLayout();
+                        rootFrame.invalidate();
+                    });
+                }
+                webView.loadUrl("https://www.wikipedia.org/");
+'''
+bridge = replace_once(bridge, old_presentation, new_presentation, 'fullscreen Presentation')
+
+bridge = replace_once(
+    bridge,
+    '    private static ViewGroup createBrowserUi(Activity activity) {\n        final float density = activity.getResources().getDisplayMetrics().density;\n',
+    '    private static ViewGroup createBrowserUi(Context context) {\n        final float density = context.getResources().getDisplayMetrics().density;\n',
+    'display-aware UI context')
+for old, new, label in [
+    ('new FrameLayout(activity)', 'new FrameLayout(context)', 'FrameLayout context'),
+    ('new LinearLayout(activity)', 'new LinearLayout(context)', 'LinearLayout context 1'),
+]:
+    # Replace all occurrences where intentional.
+    if old not in bridge:
+        raise SystemExit(f'v0.2.2 anchor missing: {label}')
+    bridge = bridge.replace(old, new)
+
+bridge = bridge.replace('button(activity,', 'button(context,')
+bridge = bridge.replace('new TextView(activity)', 'new TextView(context)')
+bridge = bridge.replace('new EditText(activity)', 'new EditText(context)')
+bridge = bridge.replace('new WebView(activity)', 'new WebView(context)')
+bridge = bridge.replace('new PointerOverlay(activity)', 'new PointerOverlay(context)')
+bridge = replace_once(
+    bridge,
+    '    private static Button button(Activity activity, String text) {\n        Button button = new Button(activity);\n',
+    '    private static Button button(Context context, String text) {\n        Button button = new Button(context);\n',
+    'button context')
+bridge = bridge.replace(' DEPTH v0.2.1  |  DE QWERTZ ', ' DEPTH v0.2.2  |  DE QWERTZ ')
+bridge_path.write_text(bridge)
+
+# ---------------------------------------------------------------------------
+# Reliable resize gesture. Grip remains move. Grip+Trigger enters resize mode,
+# locks the panel center and maps controller vertical motion to panel width.
+# Thumbstick scaling remains as an optional fallback.
+# ---------------------------------------------------------------------------
+header_path = SRC / 'QuestDepthBrowserNative.h'
+header = header_path.read_text()
+header = replace_once(
+    header,
+    '    static constexpr float kInitialPanelWidthMeters = 1.20f;\n',
+    '    static constexpr float kInitialPanelWidthMeters = 1.00f;\n',
+    'initial panel width')
+header_path.write_text(header)
+
+cpp_path = SRC / 'QuestDepthBrowserNative.cpp'
+cpp = cpp_path.read_text()
+old_grip_block = '''    if (gripPressed) {
+        if (!GripWasPressed) {
+            GrabDistance = std::max(
+                0.45f,
+                std::min(3.0f, Distance3(PanelCenter, aimPose.position)));
+        }
+
+        PanelCenter = {
+            aimPose.position.x + forward.x * GrabDistance,
+            aimPose.position.y + forward.y * GrabDistance,
+            aimPose.position.z + forward.z * GrabDistance};
+
+        if (std::abs(thumbstickY) > 0.15f) {
+            const float scaleStep = 1.0f + thumbstickY * 0.008f;
+            PanelWidthMeters = std::max(
+                0.45f,
+                std::min(2.20f, PanelWidthMeters * scaleStep));
+            PanelHeightMeters = PanelWidthMeters *
+                (static_cast<float>(TextureHeight) / static_cast<float>(TextureWidth));
+        }
+
+        if (HidePointerMethod != nullptr) {
+            env->CallStaticVoidMethod(BridgeClass, HidePointerMethod);
+            if (env->ExceptionCheck()) env->ExceptionClear();
+        }
+        PointerWasInside = false;
+        TriggerWasPressed = triggerPressed;
+        GripWasPressed = true;
+        return;
+    }
+'''
