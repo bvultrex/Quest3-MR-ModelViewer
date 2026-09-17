@@ -2,9 +2,9 @@
 
 ## Safe checkpoint
 
-The project is at **v1.0.1 regression-fix candidate**.
+The project is **complete at v1.0.1 accepted final**.
 
-The v0.3.15 feature baseline is hardware-confirmed stable. v1.0.0 was not accepted because Quest testing exposed an unusable raw metre-scale assumption plus GL lifecycle regressions affecting UI text and producing a white import artifact.
+The accepted release has passed the final Quest 3 hardware acceptance test. v1.0.0 was rejected because of raw metre-scale assumptions and GL lifecycle regressions. v1.0.1 replaces raw real-scale with explicit physical SIZE presets and hardens UI/model GL resource lifecycle handling.
 
 ## What works
 
@@ -22,16 +22,18 @@ The v0.3.15 feature baseline is hardware-confirmed stable. v1.0.0 was not accept
 - fitted scale + yaw controls
 - SIZE presets: FIT / 32MM / 75MM / 150MM / 300MM
 - import state text: IDLE / WAIT / READY / ERROR
+- restart-safe UI labels
+- restart-safe GL resource lifecycle
 
-## v1.0.1 regression fixes
+## v1.0.1 final fixes
 
-- Removed the raw `1 glTF unit = 1 metre` interaction because imported assets do not reliably encode their intended display/print unit.
-- SIZE now sets the largest model dimension to an explicit physical millimetre target.
+- Removed the raw `1 glTF unit = 1 metre` interaction because imported assets do not reliably encode intended display/print units.
+- SIZE sets the largest model dimension to an explicit physical millimetre target.
 - Manual SCALE exits a physical preset back to FIT.
 - `Scene::Create` invalidates static UI GL handles and clears imported-model GL handles rather than trusting names from a prior EGL context.
-- `Scene::Destroy` now explicitly releases UI text meshes and imported-model GL resources.
+- `Scene::Destroy` explicitly releases UI text meshes and imported-model GL resources.
 
-This lifecycle fix targets both observed v1.0.0 graphics regressions: labels disappearing after restart and a white artifact after import.
+Final hardware testing confirmed the previous disappearing-label and white-artifact regressions are no longer observed with the accepted test set.
 
 ## Build pipeline
 
@@ -49,14 +51,20 @@ This lifecycle fix targets both observed v1.0.0 graphics regressions: labels dis
 
 GLB 192 MiB, vertices 3M, indices 12M, triangles 2M, texture edge 4096, mipmapped textures 160 MiB estimate, total GPU 256 MiB estimate, CPU import 384 MiB estimate.
 
-## Required final hardware acceptance
+## Final hardware acceptance
+
+Passed on Quest 3:
 
 1. cold start with labels visible,
-2. close/reopen app and confirm labels remain visible,
-3. import a known-good small GLB and confirm READY with no white artifact,
-4. cycle SIZE through FIT / 32MM / 75MM / 150MM / 300MM and check physical plausibility,
-5. move SCALE and confirm SIZE returns to FIT,
-6. verify tablet and model gripping remain stable,
-7. restart once more and confirm no cached GLB auto-load.
+2. close/reopen keeps labels visible,
+3. known-good small GLB reaches READY with no white artifact,
+4. SIZE cycles through FIT / 32MM / 75MM / 150MM / 300MM at plausible physical sizes,
+5. moving SCALE returns SIZE to FIT,
+6. tablet and model gripping remain stable,
+7. restart remains safe and does not auto-load cached GLB.
 
-If all pass, mark v1.0.1 accepted/final. Future features then belong to v1.1.
+## Continuation policy
+
+**v1.0.1 is frozen as the accepted v1.0 baseline.**
+
+Future work should begin as v1.1+ from this checkpoint. Candidate future areas include Spatial Anchors, surface placement, richer multi-material glTF support, LOD/simplification for heavier meshes, and optional two-hand model manipulation. None are required for the accepted v1.0 scope.
