@@ -1,0 +1,178 @@
+        cosElevation * std::sin(azimuth)};
+
+    float lightTint[3] = {1.0f, 1.0f, 1.0f};
+    if (warmth >= 0.0f) {
+        lightTint[1] = 1.0f - 0.16f * warmth;
+        lightTint[2] = 1.0f - 0.32f * warmth;
+    } else {
+        const float cool = -warmth;
+        lightTint[0] = 1.0f - 0.20f * cool;
+        lightTint[1] = 1.0f - 0.08f * cool;
+    }
+
+    GL(glUniform3fv(
+        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::LIGHT_DIRECTION),
+        1,
+        lightDirection));
+    GL(glUniform3fv(
+        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::LIGHT_TINT),
+        1,
+        lightTint));
+    GL(glUniform1f(
+        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::AMBIENT_STRENGTH),
+        ambientStrength));
+    GL(glUniform1f(
+        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::KEY_INTENSITY),
+        keyIntensity));
+    GL(glUniform1f(
+        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::EXPOSURE),
+        exposureStops));
+    GL(glUniform1f(
+        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+        0.0f));
+    GL(glUniform3f(
+        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+        1.0f,
+        1.0f,
+        1.0f));
+
+    // Render imported GLB first, using the same lighting + Environment Depth shader.
+    if (gQuestMrImportedMesh.loaded && importedModelPlaced) {
+        const Matrix4f importedModel = importedModelRoot *
+            Matrix4f::Scaling(
+                gQuestMrImportedMesh.fitScale,
+                gQuestMrImportedMesh.fitScale,
+                gQuestMrImportedMesh.fitScale) *
+            Matrix4f::Translation(
+                -gQuestMrImportedMesh.center[0],
+                -gQuestMrImportedMesh.center[1],
+                -gQuestMrImportedMesh.center[2]);
+        GL(glBindVertexArray(gQuestMrImportedMesh.vao));
+        GL(glUniformMatrix4fv(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+            1,
+            GL_TRUE,
+            &importedModel.M[0][0]));
+        GL(glDrawElements(
+            GL_TRIANGLES,
+            gQuestMrImportedMesh.indexCount,
+            GL_UNSIGNED_INT,
+            nullptr));
+        GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+    }
+
+    for (const auto& trackedController : scene.TrackedControllers) {
+        const Matrix4f pose(trackedController.Pose);
+        const Matrix4f offset = Matrix4f::Translation(0, 0, -0.25);
+        const Matrix4f scale = Matrix4f::Scaling(0.1, 0.1, 0.1);
+        const Matrix4f model = pose * offset * scale;
+        GL(glUniformMatrix4fv(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(
+                Uniform::Index::MODEL_MATRIX),
+            1,
+            GL_TRUE,
+            &model.M[0][0]));
+        GL(glDrawElements(GL_TRIANGLES, scene.Box.GetIndexCount(), GL_UNSIGNED_SHORT, NULL));
+    }
+
+    if (haveLightingPalette) {
+        const auto drawUiCube = [&](const Matrix4f& model, float r, float g, float b) {
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                1.0f));
+            GL(glUniform3f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+                r,
+                g,
+                b));
+            GL(glUniformMatrix4fv(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(
+                    Uniform::Index::MODEL_MATRIX),
+                1,
+                GL_TRUE,
+                &model.M[0][0]));
+            GL(glDrawElements(GL_TRIANGLES, scene.Box.GetIndexCount(), GL_UNSIGNED_SHORT, NULL));
+        };
+
+        // Back plate makes the sticky panel easier to read and grab in MR.
+        const Matrix4f backPlate = panelPose *
+            Matrix4f::Translation(0.0f, 0.005f, 0.010f) *
+            Matrix4f::Scaling(0.115f, 0.205f, 0.0030f);
+        drawUiCube(backPlate, 0.025f, 0.030f, 0.040f);
+
+        const Matrix4f pinPad = panelPose *
+            Matrix4f::Translation(-0.050f, 0.145f, -0.008f) *
+            Matrix4f::Scaling(0.030f, 0.016f, 0.005f);
+        if (panelPinned) {
+            drawUiCube(pinPad, 0.16f, 0.78f, 0.34f);
+        } else {
+            drawUiCube(pinPad, 0.95f, 0.55f, 0.12f);
+        }
+
+        const Matrix4f importPad = panelPose *
+            Matrix4f::Translation(0.050f, 0.145f, -0.008f) *
+            Matrix4f::Scaling(0.030f, 0.016f, 0.005f);
+        if (gQuestMrImportState == 2) {
+            drawUiCube(importPad, 0.16f, 0.78f, 0.34f);
+        } else if (gQuestMrImportState == 3) {
+            drawUiCube(importPad, 0.90f, 0.18f, 0.16f);
+        } else if (gQuestMrImportState == 1) {
+            drawUiCube(importPad, 0.92f, 0.72f, 0.12f);
+        } else {
+            drawUiCube(importPad, 0.15f, 0.52f, 0.95f);
+        }
+
+        for (int i = 0; i < 6; ++i) {
+            const float rowY = kSliderTopY - float(i) * kSliderStep;
+            const float fullWidth = 2.0f * kSliderHalfWidth;
+            const float fillWidth = std::max(0.004f, fullWidth * lightSliders[i]);
+            const float fillCenterX = -kSliderHalfWidth + fillWidth * 0.5f;
+            const float knobX = -kSliderHalfWidth + fullWidth * lightSliders[i];
+
+            const Matrix4f track = panelPose *
+                Matrix4f::Translation(0.0f, rowY, 0.0f) *
+                Matrix4f::Scaling(kSliderHalfWidth, 0.0045f, 0.0025f);
+            drawUiCube(track, 0.055f, 0.065f, 0.080f);
+
+            const Matrix4f fill = panelPose *
+                Matrix4f::Translation(fillCenterX, rowY, -0.003f) *
+                Matrix4f::Scaling(fillWidth * 0.5f, 0.0065f, 0.0035f);
+            drawUiCube(fill, 0.12f, 0.62f, 0.92f);
+
+            const Matrix4f knob = panelPose *
+                Matrix4f::Translation(knobX, rowY, -0.007f) *
+                Matrix4f::Scaling(0.0075f, 0.0110f, 0.0050f);
+            drawUiCube(knob, 0.94f, 0.96f, 1.00f);
+
+            const Matrix4f marker = panelPose *
+                Matrix4f::Translation(-kSliderHalfWidth - 0.019f, rowY, 0.0f) *
+                Matrix4f::Scaling(0.0022f + float(i) * 0.0011f, 0.0050f, 0.0030f);
+            drawUiCube(marker, 0.70f, 0.74f, 0.82f);
+        }
+
+        const float resetY = kSliderTopY - 6.0f * kSliderStep - 0.012f;
+        const Matrix4f resetPad = panelPose *
+            Matrix4f::Translation(0.0f, resetY, -0.004f) *
+            Matrix4f::Scaling(0.022f, 0.012f, 0.004f);
+        drawUiCube(resetPad, 0.95f, 0.55f, 0.12f);
+
+        const Matrix4f pointerMarker =
+            pointerTipMatrix * Matrix4f::Scaling(0.007f, 0.007f, 0.007f);
+        drawUiCube(pointerMarker, 1.0f, 1.0f, 1.0f);
+
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+            0.0f));
+    }
+
+    GL(glBindVertexArray(0));'''
+
+text, count = block_re.subn(replacement, text, count=1)
+if count != 1:
+    raise SystemExit(f'Expected one v0.2 lighting block, patched {count}')
+
+src.write_text(text)
+print('Sticky panel PIN/MOVE: ON')
+print('Dedicated Android GLB picker Activity: ON')
+print('cgltf geometry import: ON')
+print('Imported GLB Environment Depth + lighting: ON')
