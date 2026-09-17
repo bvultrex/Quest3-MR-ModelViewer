@@ -1,0 +1,155 @@
+from pathlib import Path
+
+ROOT = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion')
+SRC = ROOT / 'Src'
+JAVA = ROOT / 'java/com/oculus/xrpassthroughocclusion'
+ANDROID = ROOT / 'Projects/Android'
+V021 = Path('QuestDepthBrowserNative/v021')
+
+bridge_parts = sorted((V021 / 'java_parts').glob('QuestDepthBrowserBridge.*.javafrag'))
+if not bridge_parts:
+    raise SystemExit('v0.2.1 Java bridge fragments missing')
+(JAVA / 'QuestDepthBrowserBridge.java').write_text(''.join(part.read_text() for part in bridge_parts))
+
+
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    if old not in text:
+        raise SystemExit(f'v0.2.1 anchor missing: {label}')
+    return text.replace(old, new, 1)
+
+# ---------------------------------------------------------------------------
+# Version bump.
+# ---------------------------------------------------------------------------
+gradle_path = ANDROID / 'build.gradle'
+gradle = gradle_path.read_text()
+gradle = replace_once(gradle, 'versionCode 20', 'versionCode 21', 'Gradle versionCode')
+gradle = replace_once(gradle, 'versionName "0.2.0"', 'versionName "0.2.1"', 'Gradle versionName')
+gradle_path.write_text(gradle)
+
+manifest_path = ANDROID / 'AndroidManifest.xml'
+manifest = manifest_path.read_text()
+manifest = replace_once(manifest, 'android:versionCode="20"', 'android:versionCode="21"', 'manifest versionCode')
+manifest = replace_once(manifest, 'android:versionName="0.2.0"', 'android:versionName="0.2.1"', 'manifest versionName')
+manifest_path.write_text(manifest)
+
+# ---------------------------------------------------------------------------
+# Browser input actions: right grip + right thumbstick.
+# Existing trigger action remains the click action.
+# ---------------------------------------------------------------------------
+input_h_path = SRC / 'XrPassthroughOcclusionInput.h'
+input_h = input_h_path.read_text()
+input_h = replace_once(
+    input_h,
+    'extern XrActionStateBoolean boolState;\n',
+    'extern XrActionStateBoolean boolState;\n'
+    'extern XrActionStateFloat rightGripState;\n'
+    'extern XrActionStateVector2f rightThumbstickState;\n',
+    'input state declarations')
+input_h_path.write_text(input_h)
+
+input_cpp_path = SRC / 'XrPassthroughOcclusionInput.cpp'
+input_cpp = input_cpp_path.read_text()
+input_cpp = replace_once(
+    input_cpp,
+    'XrAction boolAction = XR_NULL_HANDLE;\n',
+    'XrAction boolAction = XR_NULL_HANDLE;\n'
+    'XrAction browserGripAction = XR_NULL_HANDLE;\n'
+    'XrAction browserThumbstickAction = XR_NULL_HANDLE;\n',
+    'browser input actions')
+
+state_helper_anchor = '''XrActionStateBoolean GetActionStateBoolean(App& app, XrAction action) {
+    XrActionStateGetInfo getInfo = {XR_TYPE_ACTION_STATE_GET_INFO};
+    getInfo.action = action;
+
+    XrActionStateBoolean state = {XR_TYPE_ACTION_STATE_BOOLEAN};
+    OXR(xrGetActionStateBoolean(app.Session, &getInfo, &state));
+    return state;
+}
+'''
+state_helpers = state_helper_anchor + r'''
+
+XrActionStateFloat GetActionStateFloat(App& app, XrAction action, XrPath subactionPath) {
+    XrActionStateGetInfo getInfo = {XR_TYPE_ACTION_STATE_GET_INFO};
+    getInfo.action = action;
+    getInfo.subactionPath = subactionPath;
+    XrActionStateFloat state = {XR_TYPE_ACTION_STATE_FLOAT};
+    OXR(xrGetActionStateFloat(app.Session, &getInfo, &state));
+    return state;
+}
+
+XrActionStateVector2f GetActionStateVector2f(App& app, XrAction action, XrPath subactionPath) {
+    XrActionStateGetInfo getInfo = {XR_TYPE_ACTION_STATE_GET_INFO};
+    getInfo.action = action;
+    getInfo.subactionPath = subactionPath;
+    XrActionStateVector2f state = {XR_TYPE_ACTION_STATE_VECTOR2F};
+    OXR(xrGetActionStateVector2f(app.Session, &getInfo, &state));
+    return state;
+}
+'''
+input_cpp = replace_once(input_cpp, state_helper_anchor, state_helpers, 'input state helpers')
+input_cpp = replace_once(
+    input_cpp,
+    'XrActionStateBoolean boolState;\n',
+    'XrActionStateBoolean boolState;\n'
+    'XrActionStateFloat rightGripState{XR_TYPE_ACTION_STATE_FLOAT};\n'
+    'XrActionStateVector2f rightThumbstickState{XR_TYPE_ACTION_STATE_VECTOR2F};\n',
+    'browser input global states')
+
+create_actions_anchor = '''    XrPath handSubactionPaths[2] = {leftHandPath, rightHandPath};
+
+    aimPoseAction = CreateAction(
+'''
+create_actions_replacement = '''    XrPath handSubactionPaths[2] = {leftHandPath, rightHandPath};
+
+    browserGripAction = CreateAction(
+        runningActionSet,
+        XR_ACTION_TYPE_FLOAT_INPUT,
+        "browser_grip",
+        "Browser Grip",
+        2,
+        handSubactionPaths);
+    browserThumbstickAction = CreateAction(
+        runningActionSet,
+        XR_ACTION_TYPE_VECTOR2F_INPUT,
+        "browser_stick",
+        "Browser Thumbstick",
+        2,
+        handSubactionPaths);
+
+    aimPoseAction = CreateAction(
+'''
+input_cpp = replace_once(input_cpp, create_actions_anchor, create_actions_replacement, 'browser action creation')
+
+binding_anchor = '''        bindings.push_back(
+            ActionSuggestedBinding(app, boolAction, "/user/hand/right/input/trigger"));
+'''
+binding_replacement = binding_anchor + '''        bindings.push_back(
+            ActionSuggestedBinding(app, browserGripAction, "/user/hand/right/input/squeeze/value"));
+        bindings.push_back(
+            ActionSuggestedBinding(app, browserThumbstickAction, "/user/hand/right/input/thumbstick"));
+'''
+input_cpp = replace_once(input_cpp, binding_anchor, binding_replacement, 'browser action bindings')
+
+sync_anchor = '    boolState = GetActionStateBoolean(app, boolAction);\n'
+sync_replacement = sync_anchor + '''    rightGripState = GetActionStateFloat(app, browserGripAction, rightHandPath);
+    rightThumbstickState = GetActionStateVector2f(app, browserThumbstickAction, rightHandPath);
+'''
+input_cpp = replace_once(input_cpp, sync_anchor, sync_replacement, 'browser action state sync')
+input_cpp_path.write_text(input_cpp)
+
+# ---------------------------------------------------------------------------
+# Native browser header: dynamic panel transform + interaction state.
+# ---------------------------------------------------------------------------
+header_path = SRC / 'QuestDepthBrowserNative.h'
+header = header_path.read_text()
+header = replace_once(
+    header,
+    '    XrCompositionLayerQuad MakeLayer(int eye, XrSpace localSpace) const;\n',
+    '''    void HandleInput(
+        JNIEnv* env,
+        const XrPosef& aimPose,
+        bool aimActive,
+        bool triggerPressed,
+        float gripValue,
+        float thumbstickY);
+
