@@ -25,6 +25,7 @@ run_fragmented_patch patch_glb_loader
 run_fragmented_patch patch_glb_safety
 run_fragmented_patch patch_tablet_ui
 run_fragmented_patch patch_pbr
+run_fragmented_patch patch_v037
 
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
@@ -34,6 +35,7 @@ grep -n 'Quest3 MR Model Viewer v0.3.5: labelled room-spawned sticky tablet' "$S
 grep -n 'MODEL VIEWER' "$SRC"
 grep -n 'IMPORT GLB' "$SRC"
 grep -n 'HAS_BASE_COLOR_TEXTURE' "$SRC"
-grep -n 'Texture1' "$SRC"
-grep -n 'Texture2' "$SRC"
-grep -n 'Texture3' "$SRC"
+grep -n 'pbrUv = fragmentUv' "$SRC"
+grep -n 'GL_SRGB8_ALPHA8' "$SRC"
+grep -n 'MODEL MOVE' "$SRC"
+grep -n 'RotationY(modelYaw)' "$SRC"
