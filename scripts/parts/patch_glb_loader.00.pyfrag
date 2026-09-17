@@ -1,0 +1,232 @@
+from pathlib import Path
+import re
+
+src = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = src.read_text()
+
+# Android/JNI + loader support.
+if '#include <android_native_app_glue.h>' not in text:
+    text = text.replace('#include <android/input.h>\n', '#include <android/input.h>\n#include <android_native_app_glue.h>\n#include <jni.h>\n', 1)
+
+extra_includes = '''#include <vector>\n#include <string>\n#include <limits>\n#include <cstdint>\n#include <sys/stat.h>\n'''
+if '#include <vector>' not in text:
+    text = text.replace('#include <algorithm>\n', '#include <algorithm>\n' + extra_includes, 1)
+
+if '#define CGLTF_IMPLEMENTATION' not in text:
+    marker = '#include <sys/stat.h>\n'
+    text = text.replace(marker, marker + '\n#define CGLTF_IMPLEMENTATION\n#include "cgltf.h"\n', 1)
+
+bridge = '''\n#if defined(ANDROID)\nextern "C" struct android_app* QuestMrGetAndroidApp();\n#endif\n\n'''
+if 'QuestMrGetAndroidApp' not in text:
+    text = text.replace('using namespace OVR;\n', 'using namespace OVR;\n' + bridge, 1)
+
+# Insert the GLB helper after Meta's vertex attribute declarations. Using the
+# Geometry banner comment was too brittle and also placed the helper before
+# VERTEX_ATTRIBUTE_LOCATION_* was declared. Geometry::CreateBox is a much
+# safer structural anchor.
+helper_anchor = 'void Geometry::CreateBox() {'
+if helper_anchor not in text:
+    raise SystemExit('Geometry::CreateBox anchor not found')
+
+helpers = r'''
+namespace {
+
+struct QuestMrImportedVertex {
+    float position[3];
+    unsigned char color[4];
+};
+
+struct QuestMrImportedMesh {
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    GLuint ibo = 0;
+    GLsizei indexCount = 0;
+    float center[3] = {0.0f, 0.0f, 0.0f};
+    float fitScale = 1.0f;
+    long long loadedStamp = -1;
+    bool loaded = false;
+};
+
+QuestMrImportedMesh gQuestMrImportedMesh;
+int gQuestMrImportState = 0; // 0 idle, 1 picker/waiting, 2 loaded, 3 error
+
+void QuestMrDestroyImportedMesh() {
+    if (gQuestMrImportedMesh.vao != 0) {
+        GL(glDeleteVertexArrays(1, &gQuestMrImportedMesh.vao));
+    }
+    if (gQuestMrImportedMesh.vbo != 0) {
+        GL(glDeleteBuffers(1, &gQuestMrImportedMesh.vbo));
+    }
+    if (gQuestMrImportedMesh.ibo != 0) {
+        GL(glDeleteBuffers(1, &gQuestMrImportedMesh.ibo));
+    }
+    const long long stamp = gQuestMrImportedMesh.loadedStamp;
+    gQuestMrImportedMesh = QuestMrImportedMesh{};
+    gQuestMrImportedMesh.loadedStamp = stamp;
+}
+
+std::string QuestMrImportPath() {
+#if defined(ANDROID)
+    android_app* app = QuestMrGetAndroidApp();
+    if (app != nullptr && app->activity != nullptr && app->activity->internalDataPath != nullptr) {
+        return std::string(app->activity->internalDataPath) + "/questmr_import.glb";
+    }
+#endif
+    return std::string();
+}
+
+bool QuestMrLaunchGlbPicker() {
+#if defined(ANDROID)
+    android_app* app = QuestMrGetAndroidApp();
+    if (app == nullptr || app->activity == nullptr || app->activity->vm == nullptr ||
+        app->activity->clazz == nullptr) {
+        return false;
+    }
+
+    JNIEnv* env = nullptr;
+    bool detach = false;
+    const jint envResult = app->activity->vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    if (envResult == JNI_EDETACHED) {
+        if (app->activity->vm->AttachCurrentThread(&env, nullptr) != JNI_OK) {
+            return false;
+        }
+        detach = true;
+    } else if (envResult != JNI_OK || env == nullptr) {
+        return false;
+    }
+
+    bool ok = false;
+    jclass intentClass = env->FindClass("android/content/Intent");
+    jclass activityClass = env->GetObjectClass(app->activity->clazz);
+    if (intentClass != nullptr && activityClass != nullptr) {
+        jmethodID intentCtor = env->GetMethodID(intentClass, "<init>", "()V");
+        jmethodID setClassName = env->GetMethodID(
+            intentClass,
+            "setClassName",
+            "(Landroid/content/Context;Ljava/lang/String;)Landroid/content/Intent;");
+        jmethodID startActivity = env->GetMethodID(
+            activityClass,
+            "startActivity",
+            "(Landroid/content/Intent;)V");
+
+        if (intentCtor != nullptr && setClassName != nullptr && startActivity != nullptr) {
+            jobject intent = env->NewObject(intentClass, intentCtor);
+            jstring pickerName = env->NewStringUTF(
+                "com.bvultrex.quest3mrmodelviewer.QuestMrPickerActivity");
+            if (intent != nullptr && pickerName != nullptr) {
+                env->CallObjectMethod(intent, setClassName, app->activity->clazz, pickerName);
+                if (!env->ExceptionCheck()) {
+                    env->CallVoidMethod(app->activity->clazz, startActivity, intent);
+                    ok = !env->ExceptionCheck();
+                }
+            }
+            if (pickerName != nullptr) {
+                env->DeleteLocalRef(pickerName);
+            }
+            if (intent != nullptr) {
+                env->DeleteLocalRef(intent);
+            }
+        }
+    }
+
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        ok = false;
+    }
+    if (activityClass != nullptr) {
+        env->DeleteLocalRef(activityClass);
+    }
+    if (intentClass != nullptr) {
+        env->DeleteLocalRef(intentClass);
+    }
+
+    if (detach) {
+        app->activity->vm->DetachCurrentThread();
+    }
+    return ok;
+#else
+    return false;
+#endif
+}
+
+
+bool QuestMrLoadGlb(const std::string& path, long long stamp) {
+    cgltf_options options{};
+    cgltf_data* data = nullptr;
+    cgltf_result result = cgltf_parse_file(&options, path.c_str(), &data);
+    if (result != cgltf_result_success || data == nullptr) {
+        ALOGE("QuestMR: cgltf_parse_file failed for %s (%d)", path.c_str(), int(result));
+        if (data != nullptr) {
+            cgltf_free(data);
+        }
+        return false;
+    }
+
+    result = cgltf_load_buffers(&options, data, path.c_str());
+    if (result != cgltf_result_success) {
+        ALOGE("QuestMR: cgltf_load_buffers failed (%d)", int(result));
+        cgltf_free(data);
+        return false;
+    }
+
+    std::vector<QuestMrImportedVertex> vertices;
+    std::vector<uint32_t> indices;
+    float minP[3] = {
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max()};
+    float maxP[3] = {
+        -std::numeric_limits<float>::max(),
+        -std::numeric_limits<float>::max(),
+        -std::numeric_limits<float>::max()};
+
+    for (cgltf_size nodeIndex = 0; nodeIndex < data->nodes_count; ++nodeIndex) {
+        const cgltf_node* node = &data->nodes[nodeIndex];
+        if (node->mesh == nullptr) {
+            continue;
+        }
+
+        cgltf_float world[16];
+        cgltf_node_transform_world(node, world);
+
+        for (cgltf_size primitiveIndex = 0; primitiveIndex < node->mesh->primitives_count; ++primitiveIndex) {
+            const cgltf_primitive& primitive = node->mesh->primitives[primitiveIndex];
+            if (primitive.type != cgltf_primitive_type_triangles) {
+                continue;
+            }
+
+            const cgltf_accessor* positionAccessor = nullptr;
+            for (cgltf_size attrIndex = 0; attrIndex < primitive.attributes_count; ++attrIndex) {
+                if (primitive.attributes[attrIndex].type == cgltf_attribute_type_position) {
+                    positionAccessor = primitive.attributes[attrIndex].data;
+                    break;
+                }
+            }
+            if (positionAccessor == nullptr || positionAccessor->count == 0) {
+                continue;
+            }
+
+            float baseColor[4] = {0.82f, 0.84f, 0.88f, 1.0f};
+            if (primitive.material != nullptr && primitive.material->has_pbr_metallic_roughness) {
+                for (int c = 0; c < 4; ++c) {
+                    baseColor[c] = primitive.material->pbr_metallic_roughness.base_color_factor[c];
+                }
+            }
+
+            const uint32_t vertexBase = static_cast<uint32_t>(vertices.size());
+            for (cgltf_size vertexIndex = 0; vertexIndex < positionAccessor->count; ++vertexIndex) {
+                cgltf_float p[3] = {0.0f, 0.0f, 0.0f};
+                if (!cgltf_accessor_read_float(positionAccessor, vertexIndex, p, 3)) {
+                    continue;
+                }
+                QuestMrImportedVertex v{};
+                v.position[0] = world[0] * p[0] + world[4] * p[1] + world[8] * p[2] + world[12];
+                v.position[1] = world[1] * p[0] + world[5] * p[1] + world[9] * p[2] + world[13];
+                v.position[2] = world[2] * p[0] + world[6] * p[1] + world[10] * p[2] + world[14];
+                for (int axis = 0; axis < 3; ++axis) {
+                    minP[axis] = std::min(minP[axis], v.position[axis]);
+                    maxP[axis] = std::max(maxP[axis], v.position[axis]);
+                }
+                for (int c = 0; c < 4; ++c) {
+                    const float clamped = std::max(0.0f, std::min(1.0f, baseColor[c]));
