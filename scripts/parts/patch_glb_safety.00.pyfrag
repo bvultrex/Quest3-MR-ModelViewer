@@ -1,0 +1,213 @@
+from pathlib import Path
+import re
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# ---------------------------------------------------------------------------
+# 1) Harden GLB loading. A primitive is committed only if every vertex/index
+#    is valid. This prevents broken accessors from producing index/vertex
+#    mismatches and exploding geometry on the GPU.
+# ---------------------------------------------------------------------------
+load_start = text.find('bool QuestMrLoadGlb(const std::string& path, long long stamp) {')
+load_end = text.find('bool QuestMrPollImportFile(bool& changed) {', load_start)
+if load_start < 0 or load_end < 0:
+    raise SystemExit('QuestMrLoadGlb function anchors not found')
+
+safe_loader = r'''bool QuestMrLoadGlb(const std::string& path, long long stamp) {
+    constexpr long long kMaxFileBytes = 64LL * 1024LL * 1024LL;
+    constexpr size_t kMaxVertices = 750000;
+    constexpr size_t kMaxIndices = 2250000;
+
+    struct stat fileStat{};
+    if (stat(path.c_str(), &fileStat) != 0 || fileStat.st_size <= 0 ||
+        static_cast<long long>(fileStat.st_size) > kMaxFileBytes) {
+        ALOGE("QuestMR: GLB rejected by file-size guard (%lld bytes)",
+              static_cast<long long>(fileStat.st_size));
+        return false;
+    }
+
+    cgltf_options options{};
+    cgltf_data* data = nullptr;
+    cgltf_result result = cgltf_parse_file(&options, path.c_str(), &data);
+    if (result != cgltf_result_success || data == nullptr) {
+        ALOGE("QuestMR: cgltf_parse_file failed for %s (%d)", path.c_str(), int(result));
+        if (data != nullptr) {
+            cgltf_free(data);
+        }
+        return false;
+    }
+
+    if (data->file_type != cgltf_file_type_glb) {
+        ALOGE("QuestMR: v0.3.4 accepts binary GLB only");
+        cgltf_free(data);
+        return false;
+    }
+
+    result = cgltf_load_buffers(&options, data, path.c_str());
+    if (result != cgltf_result_success) {
+        ALOGE("QuestMR: cgltf_load_buffers failed (%d)", int(result));
+        cgltf_free(data);
+        return false;
+    }
+
+    result = cgltf_validate(data);
+    if (result != cgltf_result_success) {
+        ALOGE("QuestMR: cgltf_validate rejected GLB (%d)", int(result));
+        cgltf_free(data);
+        return false;
+    }
+
+    std::vector<QuestMrImportedVertex> vertices;
+    std::vector<uint32_t> indices;
+    vertices.reserve(std::min<size_t>(kMaxVertices, 65536));
+    indices.reserve(std::min<size_t>(kMaxIndices, 196608));
+
+    float minP[3] = {
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max()};
+    float maxP[3] = {
+        -std::numeric_limits<float>::max(),
+        -std::numeric_limits<float>::max(),
+        -std::numeric_limits<float>::max()};
+
+    size_t acceptedPrimitives = 0;
+    size_t skippedPrimitives = 0;
+
+    for (cgltf_size nodeIndex = 0; nodeIndex < data->nodes_count; ++nodeIndex) {
+        const cgltf_node* node = &data->nodes[nodeIndex];
+        if (node->mesh == nullptr) {
+            continue;
+        }
+
+        cgltf_float world[16];
+        cgltf_node_transform_world(node, world);
+        bool finiteWorld = true;
+        for (int m = 0; m < 16; ++m) {
+            if (!std::isfinite(world[m])) {
+                finiteWorld = false;
+                break;
+            }
+        }
+        if (!finiteWorld) {
+            ALOGE("QuestMR: skipping node with non-finite transform");
+            skippedPrimitives += node->mesh->primitives_count;
+            continue;
+        }
+
+        for (cgltf_size primitiveIndex = 0;
+             primitiveIndex < node->mesh->primitives_count;
+             ++primitiveIndex) {
+            const cgltf_primitive& primitive = node->mesh->primitives[primitiveIndex];
+            if (primitive.type != cgltf_primitive_type_triangles) {
+                ++skippedPrimitives;
+                continue;
+            }
+
+            const cgltf_accessor* positionAccessor = nullptr;
+            for (cgltf_size attrIndex = 0; attrIndex < primitive.attributes_count; ++attrIndex) {
+                if (primitive.attributes[attrIndex].type == cgltf_attribute_type_position) {
+                    positionAccessor = primitive.attributes[attrIndex].data;
+                    break;
+                }
+            }
+            if (positionAccessor == nullptr || positionAccessor->count == 0) {
+                ++skippedPrimitives;
+                continue;
+            }
+
+            const size_t primitiveVertexCount = static_cast<size_t>(positionAccessor->count);
+            const size_t primitiveIndexCount = primitive.indices != nullptr
+                ? static_cast<size_t>(primitive.indices->count)
+                : primitiveVertexCount;
+
+            if (primitiveIndexCount < 3 || (primitiveIndexCount % 3) != 0 ||
+                primitiveVertexCount > kMaxVertices ||
+                vertices.size() > kMaxVertices - primitiveVertexCount ||
+                primitiveIndexCount > kMaxIndices ||
+                indices.size() > kMaxIndices - primitiveIndexCount) {
+                ALOGE("QuestMR: skipping primitive beyond safe mesh budget");
+                ++skippedPrimitives;
+                continue;
+            }
+
+            const size_t vertexStart = vertices.size();
+            const size_t indexStart = indices.size();
+            const uint32_t vertexBase = static_cast<uint32_t>(vertexStart);
+
+            float baseColor[4] = {0.82f, 0.84f, 0.88f, 1.0f};
+            if (primitive.material != nullptr && primitive.material->has_pbr_metallic_roughness) {
+                for (int c = 0; c < 4; ++c) {
+                    baseColor[c] = primitive.material->pbr_metallic_roughness.base_color_factor[c];
+                }
+            }
+
+            bool primitiveOk = true;
+            for (cgltf_size vertexIndex = 0; vertexIndex < positionAccessor->count; ++vertexIndex) {
+                cgltf_float p[3] = {0.0f, 0.0f, 0.0f};
+                if (!cgltf_accessor_read_float(positionAccessor, vertexIndex, p, 3) ||
+                    !std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2])) {
+                    primitiveOk = false;
+                    break;
+                }
+
+                QuestMrImportedVertex v{};
+                v.position[0] = world[0] * p[0] + world[4] * p[1] + world[8] * p[2] + world[12];
+                v.position[1] = world[1] * p[0] + world[5] * p[1] + world[9] * p[2] + world[13];
+                v.position[2] = world[2] * p[0] + world[6] * p[1] + world[10] * p[2] + world[14];
+
+                if (!std::isfinite(v.position[0]) || !std::isfinite(v.position[1]) ||
+                    !std::isfinite(v.position[2])) {
+                    primitiveOk = false;
+                    break;
+                }
+
+                for (int c = 0; c < 4; ++c) {
+                    const float safeColor = std::isfinite(baseColor[c]) ? baseColor[c] : 1.0f;
+                    const float clamped = std::max(0.0f, std::min(1.0f, safeColor));
+                    v.color[c] = static_cast<unsigned char>(clamped * 255.0f + 0.5f);
+                }
+                vertices.push_back(v);
+            }
+
+            if (primitiveOk) {
+                if (primitive.indices != nullptr) {
+                    for (cgltf_size index = 0; index < primitive.indices->count; ++index) {
+                        const cgltf_size localIndex = cgltf_accessor_read_index(primitive.indices, index);
+                        if (localIndex >= positionAccessor->count) {
+                            primitiveOk = false;
+                            break;
+                        }
+                        indices.push_back(vertexBase + static_cast<uint32_t>(localIndex));
+                    }
+                } else {
+                    for (cgltf_size index = 0; index < positionAccessor->count; ++index) {
+                        indices.push_back(vertexBase + static_cast<uint32_t>(index));
+                    }
+                }
+            }
+
+            if (!primitiveOk || vertices.size() != vertexStart + primitiveVertexCount ||
+                indices.size() != indexStart + primitiveIndexCount) {
+                vertices.resize(vertexStart);
+                indices.resize(indexStart);
+                ++skippedPrimitives;
+                continue;
+            }
+
+            // Commit bounds only after the whole primitive survived validation.
+            for (size_t vIndex = vertexStart; vIndex < vertices.size(); ++vIndex) {
+                const QuestMrImportedVertex& v = vertices[vIndex];
+                for (int axis = 0; axis < 3; ++axis) {
+                    minP[axis] = std::min(minP[axis], v.position[axis]);
+                    maxP[axis] = std::max(maxP[axis], v.position[axis]);
+                }
+            }
+            ++acceptedPrimitives;
+        }
+    }
+
+    cgltf_free(data);
+
+    if (acceptedPrimitives == 0 || vertices.empty() || indices.empty()) {
