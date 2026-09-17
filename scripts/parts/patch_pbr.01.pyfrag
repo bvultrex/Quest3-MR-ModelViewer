@@ -1,0 +1,180 @@
+load_start = text.find('bool QuestMrLoadGlb(const std::string& path, long long stamp) {')
+load_end = text.find('bool QuestMrPollImportFile(bool& changed) {', load_start)
+if load_start < 0 or load_end < 0:
+    raise SystemExit('QuestMrLoadGlb replacement anchors not found')
+
+pbr_loader = r'''bool QuestMrLoadGlb(const std::string& path, long long stamp) {
+    constexpr long long kMaxFileBytes = 64LL * 1024LL * 1024LL;
+    constexpr size_t kMaxVertices = 750000;
+    constexpr size_t kMaxIndices = 2250000;
+
+    struct stat fileStat{};
+    if (stat(path.c_str(), &fileStat) != 0 || fileStat.st_size <= 0 ||
+        static_cast<long long>(fileStat.st_size) > kMaxFileBytes) {
+        ALOGE("QuestMR: GLB rejected by file-size guard (%lld bytes)",
+              static_cast<long long>(fileStat.st_size));
+        return false;
+    }
+
+    cgltf_options options{};
+    cgltf_data* data = nullptr;
+    cgltf_result result = cgltf_parse_file(&options, path.c_str(), &data);
+    if (result != cgltf_result_success || data == nullptr) {
+        ALOGE("QuestMR: cgltf_parse_file failed for %s (%d)", path.c_str(), int(result));
+        if (data != nullptr) {
+            cgltf_free(data);
+        }
+        return false;
+    }
+
+    if (data->file_type != cgltf_file_type_glb) {
+        ALOGE("QuestMR: v0.3.6 accepts binary GLB only");
+        cgltf_free(data);
+        return false;
+    }
+
+    result = cgltf_load_buffers(&options, data, path.c_str());
+    if (result != cgltf_result_success) {
+        ALOGE("QuestMR: cgltf_load_buffers failed (%d)", int(result));
+        cgltf_free(data);
+        return false;
+    }
+
+    result = cgltf_validate(data);
+    if (result != cgltf_result_success) {
+        ALOGE("QuestMR: cgltf_validate rejected GLB (%d)", int(result));
+        cgltf_free(data);
+        return false;
+    }
+
+    std::vector<QuestMrImportedVertex> vertices;
+    std::vector<uint32_t> indices;
+    vertices.reserve(std::min<size_t>(kMaxVertices, 65536));
+    indices.reserve(std::min<size_t>(kMaxIndices, 196608));
+
+    float minP[3] = {
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max(),
+        std::numeric_limits<float>::max()};
+    float maxP[3] = {
+        -std::numeric_limits<float>::max(),
+        -std::numeric_limits<float>::max(),
+        -std::numeric_limits<float>::max()};
+
+    size_t acceptedPrimitives = 0;
+    size_t skippedPrimitives = 0;
+    const cgltf_material* selectedMaterial = nullptr;
+    bool materialChosen = false;
+
+    for (cgltf_size nodeIndex = 0; nodeIndex < data->nodes_count; ++nodeIndex) {
+        const cgltf_node* node = &data->nodes[nodeIndex];
+        if (node->mesh == nullptr) {
+            continue;
+        }
+
+        cgltf_float world[16];
+        cgltf_node_transform_world(node, world);
+        bool finiteWorld = true;
+        for (int m = 0; m < 16; ++m) {
+            if (!std::isfinite(world[m])) {
+                finiteWorld = false;
+                break;
+            }
+        }
+        if (!finiteWorld) {
+            ALOGE("QuestMR: skipping node with non-finite transform");
+            skippedPrimitives += node->mesh->primitives_count;
+            continue;
+        }
+
+        for (cgltf_size primitiveIndex = 0;
+             primitiveIndex < node->mesh->primitives_count;
+             ++primitiveIndex) {
+            const cgltf_primitive& primitive = node->mesh->primitives[primitiveIndex];
+            if (primitive.type != cgltf_primitive_type_triangles) {
+                ++skippedPrimitives;
+                continue;
+            }
+            if (materialChosen && primitive.material != selectedMaterial) {
+                ALOGE("QuestMR: v0.3.6 skips extra materials; one material per import is supported");
+                ++skippedPrimitives;
+                continue;
+            }
+
+            const cgltf_accessor* positionAccessor = nullptr;
+            const cgltf_accessor* normalAccessor = nullptr;
+            const cgltf_accessor* uvAccessor = nullptr;
+            for (cgltf_size attrIndex = 0; attrIndex < primitive.attributes_count; ++attrIndex) {
+                const cgltf_attribute& attribute = primitive.attributes[attrIndex];
+                if (attribute.type == cgltf_attribute_type_position) {
+                    positionAccessor = attribute.data;
+                } else if (attribute.type == cgltf_attribute_type_normal) {
+                    normalAccessor = attribute.data;
+                } else if (attribute.type == cgltf_attribute_type_texcoord && attribute.index == 0) {
+                    uvAccessor = attribute.data;
+                }
+            }
+            if (positionAccessor == nullptr || positionAccessor->count == 0) {
+                ++skippedPrimitives;
+                continue;
+            }
+            if (normalAccessor != nullptr && normalAccessor->count != positionAccessor->count) {
+                normalAccessor = nullptr;
+            }
+            if (uvAccessor != nullptr && uvAccessor->count != positionAccessor->count) {
+                uvAccessor = nullptr;
+            }
+
+            const size_t primitiveVertexCount = static_cast<size_t>(positionAccessor->count);
+            const size_t primitiveIndexCount = primitive.indices != nullptr
+                ? static_cast<size_t>(primitive.indices->count)
+                : primitiveVertexCount;
+
+            if (primitiveIndexCount < 3 || (primitiveIndexCount % 3) != 0 ||
+                primitiveVertexCount > kMaxVertices ||
+                vertices.size() > kMaxVertices - primitiveVertexCount ||
+                primitiveIndexCount > kMaxIndices ||
+                indices.size() > kMaxIndices - primitiveIndexCount) {
+                ALOGE("QuestMR: skipping primitive beyond safe mesh budget");
+                ++skippedPrimitives;
+                continue;
+            }
+
+            const size_t vertexStart = vertices.size();
+            const size_t indexStart = indices.size();
+            const uint32_t vertexBase = static_cast<uint32_t>(vertexStart);
+
+            float baseColor[4] = {0.82f, 0.84f, 0.88f, 1.0f};
+            if (primitive.material != nullptr && primitive.material->has_pbr_metallic_roughness) {
+                for (int c = 0; c < 4; ++c) {
+                    baseColor[c] = primitive.material->pbr_metallic_roughness.base_color_factor[c];
+                }
+            }
+
+            bool primitiveOk = true;
+            for (cgltf_size vertexIndex = 0; vertexIndex < positionAccessor->count; ++vertexIndex) {
+                cgltf_float p[3] = {0.0f, 0.0f, 0.0f};
+                if (!cgltf_accessor_read_float(positionAccessor, vertexIndex, p, 3) ||
+                    !std::isfinite(p[0]) || !std::isfinite(p[1]) || !std::isfinite(p[2])) {
+                    primitiveOk = false;
+                    break;
+                }
+
+                QuestMrImportedVertex v{};
+                v.position[0] = world[0] * p[0] + world[4] * p[1] + world[8] * p[2] + world[12];
+                v.position[1] = world[1] * p[0] + world[5] * p[1] + world[9] * p[2] + world[13];
+                v.position[2] = world[2] * p[0] + world[6] * p[1] + world[10] * p[2] + world[14];
+
+                if (!std::isfinite(v.position[0]) || !std::isfinite(v.position[1]) ||
+                    !std::isfinite(v.position[2])) {
+                    primitiveOk = false;
+                    break;
+                }
+
+                if (normalAccessor != nullptr) {
+                    cgltf_float n[3] = {0.0f, 0.0f, 1.0f};
+                    if (!cgltf_accessor_read_float(normalAccessor, vertexIndex, n, 3) ||
+                        !std::isfinite(n[0]) || !std::isfinite(n[1]) || !std::isfinite(n[2])) {
+                        primitiveOk = false;
+                        break;
+                    }
