@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '0.2.5'
+  APP_VERSION: '0.2.6'
   APP_ID: 'com.bvultrex.questdepthbrowser.native'
   APP_LABEL: 'Quest Depth Browser Native'
 
@@ -69,6 +69,8 @@ jobs:
           python3 QuestDepthBrowserNative/v024/patch_v024.py
           python3 -m py_compile QuestDepthBrowserNative/v025/patch_v025.py
           python3 QuestDepthBrowserNative/v025/patch_v025.py
+          python3 -m py_compile QuestDepthBrowserNative/v026/patch_v026.py
+          python3 QuestDepthBrowserNative/v026/patch_v026.py
 
           ROOT=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion
           SRC="$ROOT/Src/XrPassthroughOcclusion.cpp"
@@ -77,23 +79,21 @@ jobs:
           JAVA="$ROOT/java/com/oculus/xrpassthroughocclusion/QuestDepthBrowserBridge.java"
           ACTIVITY="$ROOT/java/com/oculus/xrpassthroughocclusion/MainNativeActivity.java"
 
-          grep -n 'nativeBrowser.HandleInput' "$SRC"
-          grep -n 'rightGripState.currentState' "$SRC"
-          grep -n 'browserGripAction' "$INPUT"
+          grep -n 'leftTriggerState' "$INPUT"
+          grep -n 'leftGripState' "$INPUT"
+          grep -n 'leftBrowserAimPose' "$SRC"
+          grep -n 'useLeftHand' "$SRC"
           grep -n 'resizeCorner' "$NATIVE"
-          grep -n 'fixed producer surface + centered Android viewport' "$NATIVE"
-          grep -n 'contentOffsetX' "$NATIVE"
-          grep -n 'Native compositor-space frame' "$NATIVE"
-          grep -n 'FrameLayout.LayoutParams params = new FrameLayout.LayoutParams' "$JAVA"
-          grep -n "window.dispatchEvent(new Event('resize'))" "$JAVA"
-          grep -n 'settings.setLoadWithOverviewMode(false)' "$JAVA"
-          ! grep -q 'virtualDisplay.resize' "$JAVA"
-          ! grep -q 'sourceSurfaceTexture.setDefaultBufferSize(width, height)' "$JAVA"
-          grep -n 'Adressleiste einklappen' "$JAVA"
+          grep -n 'centered 84% capture-safe viewport' "$NATIVE"
+          grep -n 'safeScale = 0.84f' "$JAVA"
+          grep -n 'showQuestKeyboard' "$JAVA"
+          grep -n 'InputMethodManager.SHOW_IMPLICIT' "$JAVA"
+          grep -n 'document.activeElement' "$JAVA"
           grep -n 'germanTextFor' "$JAVA"
           grep -n 'dispatchKeyEvent' "$ACTIVITY"
           grep -n 'samplerExternalOES' "$NATIVE"
           grep -n 'uEnvironmentDepthTexture' "$NATIVE"
+          ! grep -q 'virtualDisplay.resize' "$JAVA"
 
       - name: Build debug APK
         working-directory: meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android
