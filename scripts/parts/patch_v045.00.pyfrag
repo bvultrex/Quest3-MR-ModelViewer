@@ -1,0 +1,60 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v0.3.15: direct one-hand model grab using the same proven left/right grip
+# input that drives tablet grabbing. Preserve the exact hand-to-model offset so
+# grabbing never snaps the model to a canned controller pose.
+old_state = '''    static bool panelGrabbed = false;\n    static int panelGrabHand = -1;\n    static Matrix4f panelGrabOffset;\n    static bool fullPbrMode = false;'''
+new_state = '''    static bool panelGrabbed = false;\n    static int panelGrabHand = -1;\n    static Matrix4f panelGrabOffset;\n    static bool modelGrabbed = false;\n    static int modelGrabHand = -1;\n    static Matrix4f modelGrabOffset;\n    static bool fullPbrMode = false;'''
+if old_state not in text:
+    raise SystemExit('v0.3.15 model grab state anchor not found')
+text = text.replace(old_state, new_state, 1)
+
+panel_grab_end = '''    if (panelGrabbed) {\n        if (panelGrabHand >= 0 && panelGrabHand < 2 &&\n            handActive[panelGrabHand] && gripDown[panelGrabHand]) {\n            panelPose = handPose[panelGrabHand] * panelGrabOffset;\n        } else {\n            panelGrabbed = false;\n            panelGrabHand = -1;\n        }\n    }\n\n    // Either controller may point at the UI. Prefer the one closest to the\n'''
+model_grab_block = '''    if (panelGrabbed) {\n        if (panelGrabHand >= 0 && panelGrabHand < 2 &&\n            handActive[panelGrabHand] && gripDown[panelGrabHand]) {\n            panelPose = handPose[panelGrabHand] * panelGrabOffset;\n        } else {\n            panelGrabbed = false;\n            panelGrabHand = -1;\n        }\n    }\n\n    // QuestMR v0.3.15 direct model grab. The imported model is centered on\n    // importedModelRoot, so a conservative scale-aware sphere is sufficient\n    // for a natural grab target without needing CPU triangle hit-testing.\n    if (!modelGrabbed && importedModelPlaced) {\n        const float grabScaleMultiplier = 0.25f + modelScaleSlider * 2.75f;\n        const float modelGrabRadius = 0.08f + 0.19f * grabScaleMultiplier;\n        const float modelGrabRadiusSq = modelGrabRadius * modelGrabRadius;\n        for (int hand = 0; hand < 2; ++hand) {\n            if (!handActive[hand] || !gripPressed[hand] ||\n                (panelGrabbed && hand == panelGrabHand)) {\n                continue;\n            }\n            const Matrix4f grabTip =\n                handPose[hand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);\n            const float dx = grabTip.M[0][3] - importedModelRoot.M[0][3];\n            const float dy = grabTip.M[1][3] - importedModelRoot.M[1][3];\n            const float dz = grabTip.M[2][3] - importedModelRoot.M[2][3];\n            const float distanceSq = dx * dx + dy * dy + dz * dz;\n            if (distanceSq <= modelGrabRadiusSq) {\n                modelGrabbed = true;\n                modelGrabHand = hand;\n                modelGrabOffset = handPose[hand].Inverted() * importedModelRoot;\n                modelMoveMode = false;\n                break;\n            }\n        }\n    }\n\n    if (modelGrabbed) {\n        if (modelGrabHand >= 0 && modelGrabHand < 2 &&\n            handActive[modelGrabHand] && gripDown[modelGrabHand] &&\n            !(panelGrabbed && modelGrabHand == panelGrabHand)) {\n            importedModelRoot = handPose[modelGrabHand] * modelGrabOffset;\n        } else {\n            modelGrabbed = false;\n            modelGrabHand = -1;\n        }\n    }\n\n    // Either controller may point at the UI. Prefer the one closest to the\n'''
+if panel_grab_end not in text:
+    raise SystemExit('v0.3.15 panel grab insertion anchor not found')
+text = text.replace(panel_grab_end, model_grab_block, 1)
+
+old_pointer_exclusion = '''        if (!handActive[hand] || (panelGrabbed && hand == panelGrabHand)) {\n            continue;\n        }'''
+new_pointer_exclusion = '''        if (!handActive[hand] ||\n            (panelGrabbed && hand == panelGrabHand) ||\n            (modelGrabbed && hand == modelGrabHand)) {\n            continue;\n        }'''
+if old_pointer_exclusion not in text:
+    raise SystemExit('v0.3.15 pointer exclusion anchor not found')
+text = text.replace(old_pointer_exclusion, new_pointer_exclusion, 1)
+
+# Retire the old click-to-toggle MODEL MOVE behavior. The row remains as a
+# visible GRIP MODEL status/instruction strip and direct grip is authoritative.
+old_model_toggle = '''            if (modelMoveTouchNow && uiTriggerPressed && importedModelPlaced) {\n                modelMoveMode = !modelMoveMode;\n            }\n            modelMoveTouchPrev = modelMoveTouchNow;'''
+new_model_toggle = '''            // GRIP MODEL is now a status/instruction row, not a toggle.\n            modelMoveMode = false;\n            modelMoveTouchPrev = modelMoveTouchNow;'''
+if old_model_toggle not in text:
+    raise SystemExit('v0.3.15 MODEL MOVE toggle anchor not found')
+text = text.replace(old_model_toggle, new_model_toggle, 1)
+
+old_move_block = '''    // MODEL MOVE uses controller 0 as the mover while controller 1 remains free\n    // to operate the tablet. With one controller the available pointer is used.\n    if (modelMoveMode && importedModelPlaced && !scene.TrackedControllers.empty()) {\n        const Matrix4f moverPose(scene.TrackedControllers[0].Pose);\n        const Matrix4f moverTarget = moverPose * Matrix4f::Translation(0.0f, 0.0f, -0.35f);\n        importedModelRoot.M[0][3] = moverTarget.M[0][3];\n        importedModelRoot.M[1][3] = moverTarget.M[1][3];\n        importedModelRoot.M[2][3] = moverTarget.M[2][3];\n    }\n\n'''
+if old_move_block not in text:
+    raise SystemExit('v0.3.15 legacy MODEL MOVE block anchor not found')
+text = text.replace(old_move_block, '', 1)
+
+# Any freshly imported mesh starts ungrabbed at its normal spawn pose.
+old_spawn_tail = '''        modelScaleSlider = 0.272727f;\n        modelRotateSlider = 0.5f;\n        modelMoveMode = false;\n        importedModelPlaced = true;'''
+new_spawn_tail = '''        modelScaleSlider = 0.272727f;\n        modelRotateSlider = 0.5f;\n        modelMoveMode = false;\n        modelGrabbed = false;\n        modelGrabHand = -1;\n        importedModelPlaced = true;'''
+if old_spawn_tail not in text:
+    raise SystemExit('v0.3.15 model spawn reset anchor not found')
+text = text.replace(old_spawn_tail, new_spawn_tail, 1)
+
+if '"MODEL MOVE"' not in text:
+    raise SystemExit('v0.3.15 model label anchor not found')
+text = text.replace('"MODEL MOVE"', '"GRIP MODEL"', 1)
+
+old_model_pad = '''        drawUiRect(\n            modelMovePad,\n            modelMoveMode ? 0.16f : 0.16f,\n            modelMoveMode ? 0.50f : 0.34f,\n            modelMoveMode ? 0.32f : 0.58f);'''
+new_model_pad = '''        drawUiRect(\n            modelMovePad,\n            modelGrabbed ? 0.34f : 0.16f,\n            modelGrabbed ? 0.30f : 0.34f,\n            modelGrabbed ? 0.18f : 0.58f);'''
+if old_model_pad not in text:
+    raise SystemExit('v0.3.15 model status pad anchor not found')
+text = text.replace(old_model_pad, new_model_pad, 1)
+
+cpp.write_text(text)
+print('v0.3.15 direct left/right model grip: ON')
+print('v0.3.15 model grab preserves hand offset + full 6DoF pose: ON')
+print('v0.3.15 legacy MODEL MOVE toggle: OFF')
