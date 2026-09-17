@@ -5,6 +5,7 @@ set -euo pipefail
 : "${APP_LABEL:?APP_LABEL is required}"
 mkdir -p dist
 ROOT='meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android'
+SRC_ROOT='meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src'
 APK=$(find "$ROOT" -type f -path '*/build/outputs/apk/*' -name '*debug.apk' | head -n 1)
 
 if [ -z "${APK:-}" ]; then
@@ -25,5 +26,7 @@ echo '--- APK package / launch metadata ---'
 grep -q "package: name='${APP_ID}'" dist/APK-BADGING.txt
 grep -Fq "application: label='${APP_LABEL}'" dist/APK-BADGING.txt
 cp scripts/CONTROLS.txt dist/CONTROLS.txt
+cp "$SRC_ROOT/XrPassthroughOcclusionGl.cpp" dist/XrPassthroughOcclusionGl.patched.cpp
+cp "$SRC_ROOT/XrPassthroughOcclusion.cpp" dist/XrPassthroughOcclusion.patched.cpp
 (cd dist && sha256sum "Quest3-MR-ModelViewer-v${APP_VERSION}-debug.apk" > SHA256SUMS.txt)
 ls -lh dist
