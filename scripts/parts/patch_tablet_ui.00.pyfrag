@@ -1,0 +1,224 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# ---------------------------------------------------------------------------
+# 1) Add a tiny static 5x7 font mesh. One VAO / one draw call for all labels.
+# ---------------------------------------------------------------------------
+font_marker = '// QuestMR v0.3.5 static tablet text mesh'
+if font_marker not in text:
+    anchor = 'void Geometry::CreateBox() {'
+    pos = text.find(anchor)
+    if pos < 0:
+        raise SystemExit('Geometry::CreateBox anchor not found for v0.3.5 font')
+
+    font_code = r'''// QuestMR v0.3.5 static tablet text mesh
+namespace {
+
+struct QuestMrUiTextMesh {
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    GLuint ibo = 0;
+    GLsizei indexCount = 0;
+    bool built = false;
+};
+
+QuestMrUiTextMesh gQuestMrUiTextMesh;
+
+const uint8_t* QuestMrGlyph5x7(char c) {
+    static const uint8_t SPACE[7] = {0, 0, 0, 0, 0, 0, 0};
+    static const uint8_t A[7] = {0x0E,0x11,0x11,0x1F,0x11,0x11,0x11};
+    static const uint8_t B[7] = {0x1E,0x11,0x11,0x1E,0x11,0x11,0x1E};
+    static const uint8_t D[7] = {0x1E,0x11,0x11,0x11,0x11,0x11,0x1E};
+    static const uint8_t E[7] = {0x1F,0x10,0x10,0x1E,0x10,0x10,0x1F};
+    static const uint8_t G[7] = {0x0E,0x11,0x10,0x17,0x11,0x11,0x0E};
+    static const uint8_t H[7] = {0x11,0x11,0x11,0x1F,0x11,0x11,0x11};
+    static const uint8_t I[7] = {0x1F,0x04,0x04,0x04,0x04,0x04,0x1F};
+    static const uint8_t K[7] = {0x11,0x12,0x14,0x18,0x14,0x12,0x11};
+    static const uint8_t L[7] = {0x10,0x10,0x10,0x10,0x10,0x10,0x1F};
+    static const uint8_t M[7] = {0x11,0x1B,0x15,0x15,0x11,0x11,0x11};
+    static const uint8_t N[7] = {0x11,0x19,0x15,0x13,0x11,0x11,0x11};
+    static const uint8_t O[7] = {0x0E,0x11,0x11,0x11,0x11,0x11,0x0E};
+    static const uint8_t P[7] = {0x1E,0x11,0x11,0x1E,0x10,0x10,0x10};
+    static const uint8_t R[7] = {0x1E,0x11,0x11,0x1E,0x14,0x12,0x11};
+    static const uint8_t S[7] = {0x0F,0x10,0x10,0x0E,0x01,0x01,0x1E};
+    static const uint8_t T[7] = {0x1F,0x04,0x04,0x04,0x04,0x04,0x04};
+    static const uint8_t U[7] = {0x11,0x11,0x11,0x11,0x11,0x11,0x0E};
+    static const uint8_t V[7] = {0x11,0x11,0x11,0x11,0x11,0x0A,0x04};
+    static const uint8_t W[7] = {0x11,0x11,0x11,0x15,0x15,0x15,0x0A};
+    static const uint8_t X[7] = {0x11,0x11,0x0A,0x04,0x0A,0x11,0x11};
+    static const uint8_t Y[7] = {0x11,0x11,0x0A,0x04,0x04,0x04,0x04};
+    static const uint8_t Z[7] = {0x1F,0x01,0x02,0x04,0x08,0x10,0x1F};
+    switch (c) {
+        case 'A': return A; case 'B': return B; case 'D': return D; case 'E': return E;
+        case 'G': return G; case 'H': return H; case 'I': return I; case 'K': return K;
+        case 'L': return L; case 'M': return M; case 'N': return N; case 'O': return O;
+        case 'P': return P; case 'R': return R; case 'S': return S; case 'T': return T;
+        case 'U': return U; case 'V': return V; case 'W': return W; case 'X': return X;
+        case 'Y': return Y; case 'Z': return Z; default: return SPACE;
+    }
+}
+
+float QuestMrUiTextWidth(const char* text, float pixel) {
+    int count = 0;
+    for (const char* p = text; *p != '\0'; ++p) {
+        ++count;
+    }
+    return count > 0 ? (float(count) * 6.0f - 1.0f) * pixel : 0.0f;
+}
+
+void QuestMrAppendUiText(
+    std::vector<QuestMrImportedVertex>& vertices,
+    std::vector<uint32_t>& indices,
+    float x,
+    float y,
+    float z,
+    float pixel,
+    const char* label) {
+    float penX = x;
+    for (const char* p = label; *p != '\0'; ++p) {
+        const uint8_t* rows = QuestMrGlyph5x7(*p);
+        for (int row = 0; row < 7; ++row) {
+            for (int col = 0; col < 5; ++col) {
+                const uint8_t bit = uint8_t(1u << (4 - col));
+                if ((rows[row] & bit) == 0) {
+                    continue;
+                }
+                const float x0 = penX + float(col) * pixel;
+                const float y0 = y - float(row) * pixel;
+                const float x1 = x0 + pixel * 0.82f;
+                const float y1 = y0 - pixel * 0.82f;
+                const uint32_t base = static_cast<uint32_t>(vertices.size());
+                const float px[4][3] = {{x0,y0,z},{x1,y0,z},{x0,y1,z},{x1,y1,z}};
+                for (int v = 0; v < 4; ++v) {
+                    QuestMrImportedVertex out{};
+                    out.position[0] = px[v][0];
+                    out.position[1] = px[v][1];
+                    out.position[2] = px[v][2];
+                    out.color[0] = 255;
+                    out.color[1] = 255;
+                    out.color[2] = 255;
+                    out.color[3] = 255;
+                    vertices.push_back(out);
+                }
+                indices.push_back(base + 0); indices.push_back(base + 1); indices.push_back(base + 2);
+                indices.push_back(base + 2); indices.push_back(base + 1); indices.push_back(base + 3);
+            }
+        }
+        penX += 6.0f * pixel;
+    }
+}
+
+void QuestMrAppendCenteredUiText(
+    std::vector<QuestMrImportedVertex>& vertices,
+    std::vector<uint32_t>& indices,
+    float centerX,
+    float y,
+    float z,
+    float pixel,
+    const char* label) {
+    QuestMrAppendUiText(
+        vertices,
+        indices,
+        centerX - QuestMrUiTextWidth(label, pixel) * 0.5f,
+        y,
+        z,
+        pixel,
+        label);
+}
+
+void QuestMrBuildUiTextMesh() {
+    if (gQuestMrUiTextMesh.built) {
+        return;
+    }
+
+    std::vector<QuestMrImportedVertex> vertices;
+    std::vector<uint32_t> indices;
+    vertices.reserve(4096);
+    indices.reserve(6144);
+
+    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, 0.181f, -0.0060f, 0.00175f, "MODEL VIEWER");
+    QuestMrAppendCenteredUiText(vertices, indices, -0.073f, 0.140f, -0.0060f, 0.00135f, "PIN MOVE");
+    QuestMrAppendCenteredUiText(vertices, indices,  0.073f, 0.140f, -0.0060f, 0.00122f, "IMPORT GLB");
+
+    static const char* labels[6] = {
+        "AMBIENT",
+        "KEY LIGHT",
+        "AZIMUTH",
+        "ELEVATION",
+        "WARMTH",
+        "EXPOSURE"};
+    constexpr float topY = 0.082f;
+    constexpr float stepY = 0.034f;
+    for (int i = 0; i < 6; ++i) {
+        QuestMrAppendUiText(vertices, indices, -0.146f, topY - float(i) * stepY + 0.0045f, -0.0060f, 0.00128f, labels[i]);
+    }
+
+    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.145f, -0.0060f, 0.00145f, "RESET");
+
+    if (vertices.empty() || indices.empty()) {
+        return;
+    }
+
+    GL(glGenVertexArrays(1, &gQuestMrUiTextMesh.vao));
+    GL(glBindVertexArray(gQuestMrUiTextMesh.vao));
+    GL(glGenBuffers(1, &gQuestMrUiTextMesh.vbo));
+    GL(glBindBuffer(GL_ARRAY_BUFFER, gQuestMrUiTextMesh.vbo));
+    GL(glBufferData(
+        GL_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(vertices.size() * sizeof(QuestMrImportedVertex)),
+        vertices.data(),
+        GL_STATIC_DRAW));
+
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_POSITION));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_POSITION,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, position))));
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_COLOR));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_COLOR,
+        4,
+        GL_UNSIGNED_BYTE,
+        GL_TRUE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, color))));
+
+    GL(glGenBuffers(1, &gQuestMrUiTextMesh.ibo));
+    GL(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gQuestMrUiTextMesh.ibo));
+    GL(glBufferData(
+        GL_ELEMENT_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(indices.size() * sizeof(uint32_t)),
+        indices.data(),
+        GL_STATIC_DRAW));
+    GL(glBindVertexArray(0));
+
+    gQuestMrUiTextMesh.indexCount = static_cast<GLsizei>(indices.size());
+    gQuestMrUiTextMesh.built = true;
+}
+
+} // namespace
+
+'''
+    text = text[:pos] + font_code + text[pos:]
+
+# ---------------------------------------------------------------------------
+# 2) Replace controller-attached tablet startup with room-spawned pinned UI.
+# ---------------------------------------------------------------------------
+marker = '    // Quest3 MR Model Viewer v0.3.4: flat sticky tablet + safe GLB import.'
+start = text.find(marker)
+if start < 0:
+    raise SystemExit('v0.3.4 control block marker not found')
+control_end = text.find('    bool importChanged = false;', start)
+if control_end < 0:
+    raise SystemExit('import poll anchor not found after v0.3.4 control block')
+
+new_controls = r'''    // Quest3 MR Model Viewer v0.3.5: labelled room-spawned sticky tablet.
+    // The panel starts pinned in front of the viewer. Controllers are interaction tools only.
+    static float lightSliders[6] = {0.26f, 0.45f, 0.58f, 0.55f, 0.50f, 0.50f};
+    static const float defaultLightSliders[6] = {0.26f, 0.45f, 0.58f, 0.55f, 0.50f, 0.50f};
+    static bool panelInitialized = false;
