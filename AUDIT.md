@@ -64,4 +64,19 @@ Hardening implemented:
 
 Policy: never carry raw OpenGL object names across an EGL/scene lifecycle boundary.
 
-v1.0.1 remains a release candidate until the restart, import-artifact and physical SIZE behaviors pass a final Quest 3 hardware test.
+## 2026-09-18 — v1.0.1 final hardware acceptance
+
+Final Quest 3 acceptance passed.
+
+Confirmed on hardware:
+
+- UI labels remain visible after closing and restarting the app,
+- known-good small GLB import reaches READY without the previous white artifact,
+- SIZE cycles FIT / 32MM / 75MM / 150MM / 300MM at plausible physical sizes,
+- moving SCALE returns SIZE to FIT,
+- tablet and model grip remain stable,
+- cold restart remains safe and does not auto-load a prior GLB.
+
+Decision: **v1.0.1 is accepted as the final v1.0 release. Project status: COMPLETE.**
+
+Future feature work belongs to v1.1+ and should branch from the accepted v1.0.1 baseline rather than altering the final v1.0 acceptance record.
