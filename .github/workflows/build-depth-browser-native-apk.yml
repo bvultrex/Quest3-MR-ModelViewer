@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '0.2.0'
+  APP_VERSION: '0.2.1'
   APP_ID: 'com.bvultrex.questdepthbrowser.native'
   APP_LABEL: 'Quest Depth Browser Native'
 
@@ -53,22 +53,32 @@ jobs:
           path: meta-openxr-sdk
           fetch-depth: 1
 
-      - name: Apply native depth browser patch
+      - name: Apply native depth browser patches
         run: |
           python3 -m py_compile QuestDepthBrowserNative/patch_sample.py
           python3 QuestDepthBrowserNative/patch_sample.py
-          SRC=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusion.cpp
-          NATIVE=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/QuestDepthBrowserNative.cpp
-          JAVA=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/java/com/oculus/xrpassthroughocclusion/QuestDepthBrowserBridge.java
-          grep -n 'QuestDepthBrowserNative nativeBrowser' "$SRC"
-          grep -n 'nativeBrowser.Render' "$SRC"
-          grep -n 'nativeBrowser.MakeLayer(0' "$SRC"
-          grep -n 'XR_EYE_VISIBILITY_LEFT' "$NATIVE"
-          grep -n 'XR_EYE_VISIBILITY_RIGHT' "$NATIVE"
+          cat QuestDepthBrowserNative/v021/parts/patch_v021.*.pyfrag > /tmp/patch_v021.py
+          python3 -m py_compile /tmp/patch_v021.py
+          python3 /tmp/patch_v021.py
+
+          ROOT=meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion
+          SRC="$ROOT/Src/XrPassthroughOcclusion.cpp"
+          NATIVE="$ROOT/Src/QuestDepthBrowserNative.cpp"
+          INPUT="$ROOT/Src/XrPassthroughOcclusionInput.cpp"
+          JAVA="$ROOT/java/com/oculus/xrpassthroughocclusion/QuestDepthBrowserBridge.java"
+          ACTIVITY="$ROOT/java/com/oculus/xrpassthroughocclusion/MainNativeActivity.java"
+
+          grep -n 'nativeBrowser.HandleInput' "$SRC"
+          grep -n 'rightGripState.currentState' "$SRC"
+          grep -n 'browserGripAction' "$INPUT"
+          grep -n 'browserThumbstickAction' "$INPUT"
+          grep -n 'uPanelCenter' "$NATIVE"
+          grep -n 'PanelWidthMeters' "$NATIVE"
+          grep -n 'public static void pointer' "$JAVA"
+          grep -n 'DE QWERTZ' "$JAVA"
+          grep -n 'dispatchKeyEvent' "$ACTIVITY"
           grep -n 'samplerExternalOES' "$NATIVE"
           grep -n 'uEnvironmentDepthTexture' "$NATIVE"
-          grep -n 'createVirtualDisplay' "$JAVA"
-          grep -n 'https://www.wikipedia.org/' "$JAVA"
 
       - name: Build debug APK
         working-directory: meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android
@@ -92,7 +102,9 @@ jobs:
           cp QuestDepthBrowserNative/CONTROLS.txt dist/CONTROLS.txt
           cp "$ROOT/Src/QuestDepthBrowserNative.cpp" dist/QuestDepthBrowserNative.patched.cpp
           cp "$ROOT/Src/XrPassthroughOcclusion.cpp" dist/XrPassthroughOcclusion.patched.cpp
+          cp "$ROOT/Src/XrPassthroughOcclusionInput.cpp" dist/XrPassthroughOcclusionInput.patched.cpp
           cp "$ROOT/java/com/oculus/xrpassthroughocclusion/QuestDepthBrowserBridge.java" dist/QuestDepthBrowserBridge.patched.java
+          cp "$ROOT/java/com/oculus/xrpassthroughocclusion/MainNativeActivity.java" dist/MainNativeActivity.patched.java
           (cd dist && sha256sum "Quest-Depth-Browser-Native-v${APP_VERSION}-debug.apk" > SHA256SUMS.txt)
           ls -lh dist
 
