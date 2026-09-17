@@ -1,0 +1,47 @@
+from pathlib import Path
+
+src_dir = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src')
+input_cpp = src_dir / 'XrPassthroughOcclusionInput.cpp'
+text = input_cpp.read_text()
+
+# v0.3.14: independent left/right trigger input plus squeeze/grip input.
+old_actions = '''XrAction aimPoseAction = XR_NULL_HANDLE;\nXrAction gripPoseAction = XR_NULL_HANDLE;\n\nXrAction boolAction = XR_NULL_HANDLE;\nXrPath leftHandPath = XR_NULL_PATH;\nXrPath rightHandPath = XR_NULL_PATH;'''
+new_actions = '''XrAction aimPoseAction = XR_NULL_HANDLE;\nXrAction gripPoseAction = XR_NULL_HANDLE;\n\nXrAction boolAction = XR_NULL_HANDLE;\nXrAction squeezeAction = XR_NULL_HANDLE;\nXrPath leftHandPath = XR_NULL_PATH;\nXrPath rightHandPath = XR_NULL_PATH;'''
+if old_actions not in text:
+    raise SystemExit('v0.3.14 action declarations anchor not found')
+text = text.replace(old_actions, new_actions, 1)
+
+helper_anchor = '''bool ActionPoseIsActive(App& app, XrAction action, XrPath subactionPath) {'''
+helpers = '''XrActionStateBoolean GetActionStateBooleanForPath(\n    App& app, XrAction action, XrPath subactionPath) {\n    XrActionStateGetInfo getInfo = {XR_TYPE_ACTION_STATE_GET_INFO};\n    getInfo.action = action;\n    getInfo.subactionPath = subactionPath;\n\n    XrActionStateBoolean state = {XR_TYPE_ACTION_STATE_BOOLEAN};\n    OXR(xrGetActionStateBoolean(app.Session, &getInfo, &state));\n    return state;\n}\n\nXrActionStateFloat GetActionStateFloatForPath(\n    App& app, XrAction action, XrPath subactionPath) {\n    XrActionStateGetInfo getInfo = {XR_TYPE_ACTION_STATE_GET_INFO};\n    getInfo.action = action;\n    getInfo.subactionPath = subactionPath;\n\n    XrActionStateFloat state = {XR_TYPE_ACTION_STATE_FLOAT};\n    OXR(xrGetActionStateFloat(app.Session, &getInfo, &state));\n    return state;\n}\n\n'''
+if 'GetActionStateFloatForPath' not in text:
+    if helper_anchor not in text:
+        raise SystemExit('v0.3.14 input helper anchor not found')
+    text = text.replace(helper_anchor, helpers + helper_anchor, 1)
+
+old_init = '''    runningActionSet =\n        CreateActionSet(app.Instance, 1, "running_action_set", "Action Set used on main loop");\n    boolAction = CreateAction(runningActionSet, XR_ACTION_TYPE_BOOLEAN_INPUT, "toggle", "Toggle");\n\n    OXR(xrStringToPath(app.Instance, "/user/hand/left", &leftHandPath));\n    OXR(xrStringToPath(app.Instance, "/user/hand/right", &rightHandPath));\n    XrPath handSubactionPaths[2] = {leftHandPath, rightHandPath};'''
+new_init = '''    runningActionSet =\n        CreateActionSet(app.Instance, 1, "running_action_set", "Action Set used on main loop");\n\n    OXR(xrStringToPath(app.Instance, "/user/hand/left", &leftHandPath));\n    OXR(xrStringToPath(app.Instance, "/user/hand/right", &rightHandPath));\n    XrPath handSubactionPaths[2] = {leftHandPath, rightHandPath};\n\n    boolAction = CreateAction(\n        runningActionSet, XR_ACTION_TYPE_BOOLEAN_INPUT, "toggle", "Toggle", 2, handSubactionPaths);\n    squeezeAction = CreateAction(\n        runningActionSet, XR_ACTION_TYPE_FLOAT_INPUT, "squeeze", "Squeeze", 2, handSubactionPaths);'''
+if old_init not in text:
+    raise SystemExit('v0.3.14 input init anchor not found')
+text = text.replace(old_init, new_init, 1)
+
+bind_anchor = '''        bindings.push_back(\n            ActionSuggestedBinding(app, boolAction, "/user/hand/right/input/trigger"));'''
+new_bind = bind_anchor + '''\n        bindings.push_back(\n            ActionSuggestedBinding(app, squeezeAction, "/user/hand/left/input/squeeze/value"));\n        bindings.push_back(\n            ActionSuggestedBinding(app, squeezeAction, "/user/hand/right/input/squeeze/value"));'''
+if bind_anchor not in text:
+    raise SystemExit('v0.3.14 trigger binding anchor not found')
+text = text.replace(bind_anchor, new_bind, 1)
+
+old_state = '''XrActionStateBoolean boolState;\n\nextern "C" bool QuestMrTriggerDown() {\n    return boolState.isActive != XR_FALSE && boolState.currentState != XR_FALSE;\n}\n\nbool leftControllerActive = false;\nbool rightControllerActive = false;'''
+new_state = '''XrActionStateBoolean boolState;\nXrActionStateBoolean leftTriggerState = {XR_TYPE_ACTION_STATE_BOOLEAN};\nXrActionStateBoolean rightTriggerState = {XR_TYPE_ACTION_STATE_BOOLEAN};\nXrActionStateFloat leftGripState = {XR_TYPE_ACTION_STATE_FLOAT};\nXrActionStateFloat rightGripState = {XR_TYPE_ACTION_STATE_FLOAT};\n\nextern "C" bool QuestMrTriggerDown() {\n    return boolState.isActive != XR_FALSE && boolState.currentState != XR_FALSE;\n}\n\nextern "C" bool QuestMrTriggerDownForHand(int hand) {\n    const XrActionStateBoolean& state = hand == 0 ? leftTriggerState : rightTriggerState;\n    return state.isActive != XR_FALSE && state.currentState != XR_FALSE;\n}\n\nextern "C" bool QuestMrGripDownForHand(int hand) {\n    const XrActionStateFloat& state = hand == 0 ? leftGripState : rightGripState;\n    return state.isActive != XR_FALSE && state.currentState >= 0.55f;\n}\n\nbool leftControllerActive = false;\nbool rightControllerActive = false;\n\nextern "C" bool QuestMrLeftControllerActiveBridge() {\n    return leftControllerActive;\n}\n\nextern "C" bool QuestMrRightControllerActiveBridge() {\n    return rightControllerActive;\n}'''
+if old_state not in text:
+    raise SystemExit('v0.3.14 trigger bridge anchor not found')
+text = text.replace(old_state, new_state, 1)
+
+old_sync = '''    boolState = GetActionStateBoolean(app, boolAction);'''
+new_sync = '''    boolState = GetActionStateBoolean(app, boolAction);\n    leftTriggerState = GetActionStateBooleanForPath(app, boolAction, leftHandPath);\n    rightTriggerState = GetActionStateBooleanForPath(app, boolAction, rightHandPath);\n    leftGripState = GetActionStateFloatForPath(app, squeezeAction, leftHandPath);\n    rightGripState = GetActionStateFloatForPath(app, squeezeAction, rightHandPath);'''
+if old_sync not in text:
+    raise SystemExit('v0.3.14 input sync anchor not found')
+text = text.replace(old_sync, new_sync, 1)
+
+input_cpp.write_text(text)
+print('v0.3.14 independent left/right trigger states: ON')
+print('v0.3.14 controller squeeze/grip action: ON')
