@@ -1,0 +1,165 @@
+        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::EXPOSURE),
+        exposureStops));
+    GL(glUniform1f(
+        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+        0.0f));
+    GL(glUniform3f(
+        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+        1.0f,
+        1.0f,
+        1.0f));
+
+    // Render only the imported model. No sample/controller cubes remain.
+    if (gQuestMrImportedMesh.loaded && importedModelPlaced) {
+        const Matrix4f importedModel = importedModelRoot *
+            Matrix4f::Scaling(
+                gQuestMrImportedMesh.fitScale,
+                gQuestMrImportedMesh.fitScale,
+                gQuestMrImportedMesh.fitScale) *
+            Matrix4f::Translation(
+                -gQuestMrImportedMesh.center[0],
+                -gQuestMrImportedMesh.center[1],
+                -gQuestMrImportedMesh.center[2]);
+        GL(glBindVertexArray(gQuestMrImportedMesh.vao));
+        GL(glUniformMatrix4fv(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+            1,
+            GL_TRUE,
+            &importedModel.M[0][0]));
+        GL(glDrawElements(
+            GL_TRIANGLES,
+            gQuestMrImportedMesh.indexCount,
+            GL_UNSIGNED_INT,
+            nullptr));
+        GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+    }
+
+    if (haveTablet) {
+        const auto drawUiRect = [&](const Matrix4f& model, float r, float g, float b) {
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                1.0f));
+            GL(glUniform3f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+                r,
+                g,
+                b));
+            GL(glUniformMatrix4fv(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+                1,
+                GL_TRUE,
+                &model.M[0][0]));
+            GL(glDrawElements(GL_TRIANGLES, scene.Box.GetIndexCount(), GL_UNSIGNED_SHORT, NULL));
+        };
+
+        // One flat sheet, visually closer to a tablet than a cloud of 3D controls.
+        const Matrix4f sheet = panelPose *
+            Matrix4f::Translation(0.0f, -0.018f, 0.004f) *
+            Matrix4f::Scaling(0.125f, 0.190f, 0.0012f);
+        drawUiRect(sheet, 0.030f, 0.035f, 0.045f);
+
+        const Matrix4f header = panelPose *
+            Matrix4f::Translation(0.0f, 0.132f, -0.0005f) *
+            Matrix4f::Scaling(0.112f, 0.022f, 0.0014f);
+        drawUiRect(header, 0.075f, 0.085f, 0.105f);
+
+        const Matrix4f pinPad = panelPose *
+            Matrix4f::Translation(-0.056f, 0.132f, -0.003f) *
+            Matrix4f::Scaling(0.040f, 0.015f, 0.0018f);
+        drawUiRect(pinPad, panelPinned ? 0.20f : 0.78f, panelPinned ? 0.72f : 0.62f, 0.92f);
+
+        const Matrix4f importPad = panelPose *
+            Matrix4f::Translation(0.056f, 0.132f, -0.003f) *
+            Matrix4f::Scaling(0.040f, 0.015f, 0.0018f);
+        if (gQuestMrImportState == 2) {
+            drawUiRect(importPad, 0.72f, 0.90f, 1.00f);
+        } else if (gQuestMrImportState == 3) {
+            drawUiRect(importPad, 0.92f, 0.55f, 0.18f);
+        } else if (gQuestMrImportState == 1) {
+            drawUiRect(importPad, 0.95f, 0.78f, 0.20f);
+        } else {
+            drawUiRect(importPad, 0.18f, 0.58f, 0.92f);
+        }
+
+        for (int i = 0; i < 6; ++i) {
+            const float rowY = kSliderTopY - float(i) * kSliderStep;
+            const float fullWidth = 2.0f * kSliderHalfWidth;
+            const float fillWidth = std::max(0.002f, fullWidth * lightSliders[i]);
+            const float fillCenterX = -kSliderHalfWidth + fillWidth * 0.5f;
+            const float knobX = -kSliderHalfWidth + fullWidth * lightSliders[i];
+
+            const Matrix4f track = panelPose *
+                Matrix4f::Translation(0.0f, rowY, -0.0010f) *
+                Matrix4f::Scaling(kSliderHalfWidth, 0.0032f, 0.0010f);
+            drawUiRect(track, 0.11f, 0.12f, 0.15f);
+
+            const Matrix4f fill = panelPose *
+                Matrix4f::Translation(fillCenterX, rowY, -0.0022f) *
+                Matrix4f::Scaling(fillWidth * 0.5f, 0.0038f, 0.0011f);
+            drawUiRect(fill, 0.20f, 0.64f, 0.94f);
+
+            const Matrix4f knob = panelPose *
+                Matrix4f::Translation(knobX, rowY, -0.0034f) *
+                Matrix4f::Scaling(0.0060f, 0.0080f, 0.0012f);
+            drawUiRect(knob, 0.92f, 0.94f, 0.98f);
+        }
+
+        const float footerY = kSliderTopY - 6.0f * kSliderStep - 0.010f;
+        const Matrix4f resetPad = panelPose *
+            Matrix4f::Translation(0.0f, footerY, -0.0025f) *
+            Matrix4f::Scaling(0.030f, 0.011f, 0.0015f);
+        drawUiRect(resetPad, 0.78f, 0.68f, 0.24f);
+
+        // Flat cursor dot instead of another floating cube.
+        const Matrix4f pointerMarker =
+            pointerTipMatrix * Matrix4f::Scaling(0.0045f, 0.0045f, 0.0010f);
+        drawUiRect(pointerMarker, 0.95f, 0.97f, 1.0f);
+
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+            0.0f));
+    }
+
+    GL(glBindVertexArray(0));'''
+
+text = text[:block_start] + flat_block + text[block_end:]
+cpp.write_text(text)
+
+# ---------------------------------------------------------------------------
+# 3) Cap picker copies before they can exhaust memory/storage. The native side
+#    has the same 64 MiB guard, so both halves agree.
+# ---------------------------------------------------------------------------
+activity = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java')
+java = activity.read_text()
+if 'MAX_IMPORT_BYTES' not in java:
+    java = java.replace(
+        'private static final int QUESTMR_OPEN_GLB = 4242;',
+        'private static final int QUESTMR_OPEN_GLB = 4242;\n    private static final long MAX_IMPORT_BYTES = 64L * 1024L * 1024L;',
+        1)
+    old_copy = '''            byte[] buffer = new byte[65536];
+            int count;
+            while ((count = input.read(buffer)) > 0) {
+                output.write(buffer, 0, count);
+            }
+            output.flush();'''
+    new_copy = '''            byte[] buffer = new byte[65536];
+            int count;
+            long totalBytes = 0L;
+            while ((count = input.read(buffer)) > 0) {
+                totalBytes += count;
+                if (totalBytes > MAX_IMPORT_BYTES) {
+                    throw new java.io.IOException("GLB exceeds 64 MiB safety limit");
+                }
+                output.write(buffer, 0, count);
+            }
+            output.flush();'''
+    if old_copy not in java:
+        raise SystemExit('Picker copy loop anchor not found')
+    java = java.replace(old_copy, new_copy, 1)
+    activity.write_text(java)
+
+print('v0.3.4 colourful sample/controller cubes: REMOVED')
+print('v0.3.4 sticky flat tablet UI: ON')
+print('v0.3.4 GLB validation + transactional primitives: ON')
+print('v0.3.4 GLB file cap: 64 MiB')
+print('v0.3.4 mesh budget: 750k vertices / 2.25M indices')
