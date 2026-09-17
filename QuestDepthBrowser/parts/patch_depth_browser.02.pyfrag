@@ -1,0 +1,56 @@
+
+# ---------------------------------------------------------------------------
+# v0.1.2: compositor-layer + depth-aware hole-punch scene mesh.
+# ---------------------------------------------------------------------------
+gradle = APP / 'build.gradle.kts'
+text = gradle.read_text()
+text = text.replace('versionCode = 2', 'versionCode = 3', 1)
+text = text.replace('versionName = "0.1.1"', 'versionName = "0.1.2"', 1)
+gradle.write_text(text)
+
+activity_text = activity.read_text()
+activity_text = activity_text.replace(
+    'import com.meta.spatial.runtime.EnvironmentDepthMode\n',
+    'import com.meta.spatial.runtime.AlphaMode\n'
+    'import com.meta.spatial.runtime.EnvironmentDepthMode\n'
+    'import com.meta.spatial.runtime.LayerConfig\n'
+    'import com.meta.spatial.runtime.SceneMaterial\n',
+    1,
+)
+activity_text = activity_text.replace(
+    '    scene.enablePassthrough(true)\n    applyDepthMode()\n',
+    '    scene.enablePassthrough(true)\n'
+    '    // Render poseable compositor layers before the 3D scene. The matching\n'
+    '    // scene mesh below then punches the layer through the scene. Environment\n'
+    '    // Depth can occlude that mesh, so real geometry remains in front.\n'
+    '    scene.enableHolePunching(true)\n'
+    '    applyDepthMode()\n',
+    1,
+)
+registration_anchor = '''            panelSetupWithRootView = { rootView, _, _ -> configureBrowser(rootView) },
+        ),
+'''
+registration_replacement = '''            panelSetupWithRootView = { rootView, _, _ -> configureBrowser(rootView) },
+        ).also { registration ->
+          registration.config {
+            // Keep the crisp compositor layer but also create a scene texture/mesh.
+            // The mesh uses Meta's dedicated hole-punch shader. When a real surface
+            // is closer than the panel, Environment Depth occludes this mesh and the
+            // compositor layer can no longer punch through at that pixel.
+            layerConfig = LayerConfig()
+            forceSceneTexture = true
+            panelShader = SceneMaterial.HOLE_PUNCH_PANEL_SHADER
+            alphaMode = AlphaMode.HOLE_PUNCH
+            includeGlass = false
+          }
+        },
+'''
+if registration_anchor not in activity_text:
+    raise SystemExit('v0.1.2 registration anchor not found')
+activity_text = activity_text.replace(registration_anchor, registration_replacement, 1)
+activity.write_text(activity_text)
+
+print('Quest Depth Browser v0.1.2 depth-aware HQ layer patch applied')
+print('render path: compositor Layer + HOLE_PUNCH_PANEL_SHADER scene mesh')
+print('hole punching: ON')
+print('environment depth: OCCLUSION')
