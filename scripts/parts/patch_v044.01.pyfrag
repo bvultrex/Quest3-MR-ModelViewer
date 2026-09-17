@@ -1,0 +1,49 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+extern_anchor = 'extern "C" bool QuestMrTriggerDown();\n'
+extern_block = '''extern "C" bool QuestMrTriggerDown();\nextern "C" bool QuestMrTriggerDownForHand(int hand);\nextern "C" bool QuestMrGripDownForHand(int hand);\nextern "C" bool QuestMrLeftControllerActiveBridge();\nextern "C" bool QuestMrRightControllerActiveBridge();\n'''
+if extern_anchor not in text:
+    raise SystemExit('v0.3.14 renderer input bridge anchor not found')
+text = text.replace(extern_anchor, extern_block, 1)
+
+old_state = '''    static bool uiTriggerPrev = false;\n    static bool fullPbrMode = false;'''
+new_state = '''    static bool uiTriggerPrev[2] = {false, false};\n    static bool gripPrev[2] = {false, false};\n    static bool panelGrabbed = false;\n    static int panelGrabHand = -1;\n    static Matrix4f panelGrabOffset;\n    static bool fullPbrMode = false;'''
+if old_state not in text:
+    raise SystemExit('v0.3.14 UI state anchor not found')
+text = text.replace(old_state, new_state, 1)
+
+old_pointer = '''    Matrix4f pointerTipMatrix;\n    bool havePointer = false;\n\n    if (!panelInitialized) {\n        Matrix4f headPose = frameIn.View[0].Inverted();\n        const Matrix4f rightEyePose = frameIn.View[1].Inverted();\n        headPose.M[0][3] = (headPose.M[0][3] + rightEyePose.M[0][3]) * 0.5f;\n        headPose.M[1][3] = (headPose.M[1][3] + rightEyePose.M[1][3]) * 0.5f;\n        headPose.M[2][3] = (headPose.M[2][3] + rightEyePose.M[2][3]) * 0.5f;\n        panelPose = headPose * Matrix4f::Translation(0.0f, kPanelSpawnY, kPanelSpawnDistance);\n        panelInitialized = true;\n        panelPinned = true;\n    }\n\n    if (scene.TrackedControllers.size() >= 2) {\n        const Matrix4f pointerPose(scene.TrackedControllers[1].Pose);\n        pointerTipMatrix = pointerPose * Matrix4f::Translation(0.0f, 0.0f, -0.080f);\n        havePointer = true;\n    } else if (!scene.TrackedControllers.empty()) {\n        const Matrix4f pointerPose(scene.TrackedControllers[0].Pose);\n        pointerTipMatrix = pointerPose * Matrix4f::Translation(0.0f, 0.0f, -0.080f);\n        havePointer = true;\n    }\n\n    // QuestMR v0.3.13 controller-oriented tablet placement.\n    // While PIN MOVE is active, inherit the controller's complete pose rather\n    // than translation only. Re-pinning freezes both position and orientation.\n    if (!panelPinned && !scene.TrackedControllers.empty()) {\n        const Matrix4f moverPose(scene.TrackedControllers[0].Pose);\n        panelPose = moverPose * Matrix4f::Translation(0.0f, 0.0f, -0.34f);\n    }\n\n    const bool uiTriggerDown = QuestMrTriggerDown();\n    const bool uiTriggerPressed = uiTriggerDown && !uiTriggerPrev;\n\n'''
+new_pointer = '''    Matrix4f pointerTipMatrix;\n    bool havePointer = false;\n    int pointerHand = -1;\n\n    if (!panelInitialized) {\n        Matrix4f headPose = frameIn.View[0].Inverted();\n        const Matrix4f rightEyePose = frameIn.View[1].Inverted();\n        headPose.M[0][3] = (headPose.M[0][3] + rightEyePose.M[0][3]) * 0.5f;\n        headPose.M[1][3] = (headPose.M[1][3] + rightEyePose.M[1][3]) * 0.5f;\n        headPose.M[2][3] = (headPose.M[2][3] + rightEyePose.M[2][3]) * 0.5f;\n        panelPose = headPose * Matrix4f::Translation(0.0f, kPanelSpawnY, kPanelSpawnDistance);\n        panelInitialized = true;\n        panelPinned = true;\n    }\n\n    // QuestMR v0.3.14: reconstruct stable left/right controller identities from\n    // the sample's packed TrackedControllers vector (left is packed first).\n    bool handActive[2] = {\n        QuestMrLeftControllerActiveBridge(),\n        QuestMrRightControllerActiveBridge()};\n    Matrix4f handPose[2];\n    size_t packedController = 0;\n    for (int hand = 0; hand < 2; ++hand) {\n        if (!handActive[hand]) {\n            continue;\n        }\n        if (packedController >= scene.TrackedControllers.size()) {\n            handActive[hand] = false;\n            continue;\n        }\n        handPose[hand] = Matrix4f(scene.TrackedControllers[packedController].Pose);\n        ++packedController;\n    }\n\n    const bool gripDown[2] = {\n        handActive[0] && QuestMrGripDownForHand(0),\n        handActive[1] && QuestMrGripDownForHand(1)};\n    const bool gripPressed[2] = {\n        gripDown[0] && !gripPrev[0],\n        gripDown[1] && !gripPrev[1]};\n\n    const auto panelLocalPoint = [&](const Matrix4f& worldPoint, float& x, float& y, float& z) {\n        const float dx = worldPoint.M[0][3] - panelPose.M[0][3];\n        const float dy = worldPoint.M[1][3] - panelPose.M[1][3];\n        const float dz = worldPoint.M[2][3] - panelPose.M[2][3];\n        x = panelPose.M[0][0] * dx + panelPose.M[1][0] * dy + panelPose.M[2][0] * dz;\n        y = panelPose.M[0][1] * dx + panelPose.M[1][1] * dy + panelPose.M[2][1] * dz;\n        z = panelPose.M[0][2] * dx + panelPose.M[1][2] * dy + panelPose.M[2][2] * dz;\n    };\n\n    // Grab anywhere on the tablet with squeeze/grip. Preserve the exact\n    // hand-to-tablet offset so the tablet never snaps when grabbing begins.\n    if (!panelGrabbed) {\n        for (int hand = 0; hand < 2; ++hand) {\n            if (!handActive[hand] || !gripPressed[hand]) {\n                continue;\n            }\n            const Matrix4f grabTip =\n                handPose[hand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);\n            float grabX = 0.0f;\n            float grabY = 0.0f;\n            float grabZ = 0.0f;\n            panelLocalPoint(grabTip, grabX, grabY, grabZ);\n            if (std::abs(grabX) < 0.170f &&\n                grabY > -0.310f && grabY < 0.210f &&\n                std::abs(grabZ) < 0.100f) {\n                panelGrabbed = true;\n                panelGrabHand = hand;\n                panelGrabOffset = handPose[hand].Inverted() * panelPose;\n                break;\n            }\n        }\n    }\n\n    if (panelGrabbed) {\n        if (panelGrabHand >= 0 && panelGrabHand < 2 &&\n            handActive[panelGrabHand] && gripDown[panelGrabHand]) {\n            panelPose = handPose[panelGrabHand] * panelGrabOffset;\n        } else {\n            panelGrabbed = false;\n            panelGrabHand = -1;\n        }\n    }\n\n    // Either controller may point at the UI. Prefer the one closest to the\n    // tablet plane; the hand currently grabbing the tablet is excluded.\n    float bestPointerDepth = 1000.0f;\n    for (int hand = 0; hand < 2; ++hand) {\n        if (!handActive[hand] || (panelGrabbed && hand == panelGrabHand)) {\n            continue;\n        }\n        const Matrix4f candidateTip =\n            handPose[hand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);\n        float candidateX = 0.0f;\n        float candidateY = 0.0f;\n        float candidateZ = 0.0f;\n        panelLocalPoint(candidateTip, candidateX, candidateY, candidateZ);\n        const float candidateDepth = std::abs(candidateZ);\n        if (candidateDepth < 0.060f &&\n            std::abs(candidateX) < 0.170f &&\n            candidateY > -0.310f && candidateY < 0.210f &&\n            candidateDepth < bestPointerDepth) {\n            bestPointerDepth = candidateDepth;\n            pointerTipMatrix = candidateTip;\n            pointerHand = hand;\n            havePointer = true;\n        }\n    }\n\n    const bool uiTriggerDown =\n        pointerHand >= 0 && QuestMrTriggerDownForHand(pointerHand);\n    const bool uiTriggerPressed =\n        pointerHand >= 0 && uiTriggerDown && !uiTriggerPrev[pointerHand];\n\n'''
+if old_pointer not in text:
+    raise SystemExit('v0.3.14 pointer/grab anchor not found')
+text = text.replace(old_pointer, new_pointer, 1)
+
+old_pin = '''            if (pinTouchNow && uiTriggerPressed) {\n                panelPinned = !panelPinned;\n            }\n            pinTouchPrev = pinTouchNow;'''
+new_pin = '''            // GRIP MOVE is now a status/instruction area, not a button.\n            pinTouchPrev = pinTouchNow;'''
+if old_pin not in text:
+    raise SystemExit('v0.3.14 PIN MOVE interaction anchor not found')
+text = text.replace(old_pin, new_pin, 1)
+
+old_latch = '''    uiTriggerPrev = uiTriggerDown;\n\n    bool importChanged = false;'''
+new_latch = '''    uiTriggerPrev[0] =\n        handActive[0] && QuestMrTriggerDownForHand(0);\n    uiTriggerPrev[1] =\n        handActive[1] && QuestMrTriggerDownForHand(1);\n    gripPrev[0] = gripDown[0];\n    gripPrev[1] = gripDown[1];\n\n    bool importChanged = false;'''
+if old_latch not in text:
+    raise SystemExit('v0.3.14 input latch anchor not found')
+text = text.replace(old_latch, new_latch, 1)
+
+if '"PIN MOVE"' not in text:
+    raise SystemExit('v0.3.14 tablet label anchor not found')
+text = text.replace('"PIN MOVE"', '"GRIP MOVE"', 1)
+
+old_color = 'drawUiRect(pinPad, panelPinned ? 0.14f : 0.34f, panelPinned ? 0.42f : 0.30f, panelPinned ? 0.62f : 0.18f);'
+new_color = 'drawUiRect(pinPad, panelGrabbed ? 0.34f : 0.14f, panelGrabbed ? 0.30f : 0.42f, panelGrabbed ? 0.18f : 0.62f);'
+if old_color not in text:
+    raise SystemExit('v0.3.14 grab status color anchor not found')
+text = text.replace(old_color, new_color, 1)
+
+cpp.write_text(text)
+print('v0.3.14 left + right controller UI selection: ON')
+print('v0.3.14 direct tablet grip manipulation: ON')
+print('v0.3.14 no-snap grab offset: ON')
