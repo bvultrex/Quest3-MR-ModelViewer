@@ -1,0 +1,111 @@
+''',
+    '''    jobject ActivityObject = nullptr;
+    jclass BridgeClass = nullptr;
+    jmethodID PointerMethod = nullptr;
+    jmethodID HidePointerMethod = nullptr;
+    jobject SurfaceTextureObject = nullptr;
+''',
+    'bridge JNI state')
+header = replace_once(
+    header,
+    '''    std::array<float, 16> SurfaceTransform{};
+
+    std::array<XrSwapchain, 2> Swapchains''',
+    '''    std::array<float, 16> SurfaceTransform{};
+
+    XrVector3f PanelCenter{0.0f, kInitialPanelCenterY, kInitialPanelCenterZ};
+    float PanelWidthMeters = kInitialPanelWidthMeters;
+    float PanelHeightMeters = 0.75f;
+    bool TriggerWasPressed = false;
+    bool GripWasPressed = false;
+    bool PointerWasInside = false;
+    float LastPointerU = 0.5f;
+    float LastPointerV = 0.5f;
+    float GrabDistance = 1.25f;
+
+    std::array<XrSwapchain, 2> Swapchains''',
+    'panel interaction state')
+header_path.write_text(header)
+
+# ---------------------------------------------------------------------------
+# Native browser implementation.
+# ---------------------------------------------------------------------------
+cpp_path = SRC / 'QuestDepthBrowserNative.cpp'
+cpp = cpp_path.read_text()
+cpp = replace_once(
+    cpp,
+    '''uniform int uEye;
+uniform float uHasDepth;
+in vec2 vUv;
+''',
+    '''uniform int uEye;
+uniform float uHasDepth;
+uniform vec3 uPanelCenter;
+uniform vec2 uPanelSize;
+in vec2 vUv;
+''',
+    'dynamic panel uniforms')
+cpp = replace_once(
+    cpp,
+    '''const float PANEL_WIDTH = 1.45;
+const float PANEL_HEIGHT = 0.90625;
+const float PANEL_Y = -0.02;
+const float PANEL_Z = -1.15;
+
+''',
+    '',
+    'remove fixed panel constants')
+cpp = replace_once(
+    cpp,
+    '''        vec3 worldPosition = vec3(
+            (vUv.x - 0.5) * PANEL_WIDTH,
+            PANEL_Y + (vUv.y - 0.5) * PANEL_HEIGHT,
+            PANEL_Z);
+''',
+    '''        vec3 worldPosition = vec3(
+            uPanelCenter.x + (vUv.x - 0.5) * uPanelSize.x,
+            uPanelCenter.y + (vUv.y - 0.5) * uPanelSize.y,
+            uPanelCenter.z);
+''',
+    'dynamic panel world position')
+cpp = replace_once(
+    cpp,
+    '''    EyeLocation = glGetUniformLocation(Program, "uEye");
+    HasDepthLocation = glGetUniformLocation(Program, "uHasDepth");
+    return true;
+''',
+    '''    EyeLocation = glGetUniformLocation(Program, "uEye");
+    HasDepthLocation = glGetUniformLocation(Program, "uHasDepth");
+    PanelCenterLocation = glGetUniformLocation(Program, "uPanelCenter");
+    PanelSizeLocation = glGetUniformLocation(Program, "uPanelSize");
+    return true;
+''',
+    'dynamic panel uniform locations')
+
+bridge_cache_anchor = '''    jclass bridgeClass = LoadBridgeClass(env, activity);
+    if (bridgeClass == nullptr) return false;
+    jmethodID startMethod = env->GetStaticMethodID(
+'''
+bridge_cache_replacement = '''    jclass bridgeClass = LoadBridgeClass(env, activity);
+    if (bridgeClass == nullptr) return false;
+    BridgeClass = reinterpret_cast<jclass>(env->NewGlobalRef(bridgeClass));
+    PointerMethod = env->GetStaticMethodID(BridgeClass, "pointer", "(FFI)V");
+    HidePointerMethod = env->GetStaticMethodID(BridgeClass, "hidePointer", "()V");
+    if (PointerMethod == nullptr || HidePointerMethod == nullptr) {
+        env->DeleteLocalRef(bridgeClass);
+        return false;
+    }
+    jmethodID startMethod = env->GetStaticMethodID(
+'''
+cpp = replace_once(cpp, bridge_cache_anchor, bridge_cache_replacement, 'bridge input methods')
+
+cpp = replace_once(
+    cpp,
+    '''    TextureWidth = std::max(TextureWidth, 1024);
+    TextureHeight = std::max(TextureHeight, 640);
+
+    for (int eye = 0; eye < 2; ++eye) {
+''',
+    '''    TextureWidth = std::max(TextureWidth, 1024);
+    TextureHeight = std::max(TextureHeight, 640);
+    PanelHeightMeters = PanelWidthMeters *
