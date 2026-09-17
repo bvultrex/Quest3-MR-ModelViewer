@@ -1,14 +1,15 @@
-Quest Depth Browser Native v0.2.4
+Quest Depth Browser Native v0.2.5
 
 Expected behavior:
 - Passthrough room visible.
 - Browser remains compositor-sharp.
 - Environment Depth still occludes the browser behind real objects.
-- Default browser producer and OpenXR swapchain now start at true 3200x1800 (16:9).
-- The old centered viewport + second shader crop path is removed.
-- Aspect changes resize the VirtualDisplay itself so Chromium reflows at the actual spatial-window aspect.
-- A subtle native OpenXR border/corner marker is rendered outside the Android UI. This reveals the real quad bounds even if WebView geometry is wrong.
+- The GPU producer surface stays fixed for the full app lifetime.
+- Spatial aspect changes resize only a centered Android/WebView viewport inside that fixed producer.
+- The native shader samples exactly that centered viewport, so the page and toolbar should no longer be clipped or stuck to the right edge.
+- Chromium receives an explicit resize event after the viewport relayout.
 - Sticky Quest-style URL/navigation bar and DE-QWERTZ remain enabled.
+- Native OpenXR border/corner marker remains enabled for geometry diagnostics.
 
 Controls:
 - Right controller aim: point at the browser.
@@ -19,7 +20,8 @@ Controls:
 - DE-QWERTZ remap remains enabled for the MX Keys path.
 - ^ collapses the sticky URL/navigation bar; the small down-chevron restores it.
 
-v0.2.4 geometry checkpoint:
-- The complete Wikipedia page and toolbar should fit inside the native border.
-- The native border should itself appear as a clean 16:9 rectangle at startup.
-- Sharp per-eye compositor quads + Environment Depth alpha-mask core are otherwise unchanged.
+v0.2.5 geometry checkpoint:
+- GO and ^ should remain visible at the right side of the toolbar.
+- Centered web content/dialogs should remain centered while changing the spatial-window aspect.
+- Resizing must not change the underlying SurfaceTexture / VirtualDisplay buffer size.
+- Sharp per-eye compositor quads + Environment Depth alpha-mask core are unchanged.
