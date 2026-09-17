@@ -1,0 +1,40 @@
+rix4f::Translation(0.0f, 0.0f, -0.35f);\n        importedModelRoot.M[0][3] = moverTarget.M[0][3];\n        importedModelRoot.M[1][3] = moverTarget.M[1][3];\n        importedModelRoot.M[2][3] = moverTarget.M[2][3];\n    }\n\n    const float ambientStrength ='''
+if spawn_end not in text:
+    raise SystemExit('Model move insertion anchor not found')
+text = text.replace(spawn_end, move_block, 1)
+
+# 4) Apply scale/yaw and conservative COLOR mode. Full PBR can be toggled on from the tablet.
+old_model_matrix = '''        const Matrix4f importedModel = importedModelRoot *\n            Matrix4f::Scaling(\n                gQuestMrImportedMesh.fitScale,\n                gQuestMrImportedMesh.fitScale,\n                gQuestMrImportedMesh.fitScale) *\n            Matrix4f::Translation(\n                -gQuestMrImportedMesh.center[0],\n                -gQuestMrImportedMesh.center[1],\n                -gQuestMrImportedMesh.center[2]);'''
+new_model_matrix = '''        const float modelScaleMultiplier = 0.25f + modelScaleSlider * 2.75f;\n        const float modelYaw = (modelRotateSlider * 2.0f - 1.0f) * 3.14159265f;\n        const float fittedScale = gQuestMrImportedMesh.fitScale * modelScaleMultiplier;\n        const Matrix4f importedModel = importedModelRoot *\n            Matrix4f::RotationY(modelYaw) *\n            Matrix4f::Scaling(fittedScale, fittedScale, fittedScale) *\n            Matrix4f::Translation(\n                -gQuestMrImportedMesh.center[0],\n                -gQuestMrImportedMesh.center[1],\n                -gQuestMrImportedMesh.center[2]);'''
+if old_model_matrix not in text:
+    raise SystemExit('Imported model matrix anchor not found')
+text = text.replace(old_model_matrix, new_model_matrix, 1)
+
+old_flags = '''        GL(glUniform1f(\n            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::METALLIC_FACTOR),\n            gQuestMrImportedMesh.metallicFactor));\n        GL(glUniform1f(\n            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::ROUGHNESS_FACTOR),\n            gQuestMrImportedMesh.roughnessFactor));\n        GL(glUniform1f(\n            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::NORMAL_SCALE),\n            gQuestMrImportedMesh.normalScale));'''
+new_flags = '''        GL(glUniform1f(\n            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::METALLIC_FACTOR),\n            fullPbrMode ? gQuestMrImportedMesh.metallicFactor : 0.0f));\n        GL(glUniform1f(\n            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::ROUGHNESS_FACTOR),\n            fullPbrMode ? gQuestMrImportedMesh.roughnessFactor : 0.82f));\n        GL(glUniform1f(\n            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::NORMAL_SCALE),\n            fullPbrMode ? gQuestMrImportedMesh.normalScale : 0.0f));'''
+if old_flags not in text:
+    raise SystemExit('PBR factor anchor not found')
+text = text.replace(old_flags, new_flags, 1)
+
+old_adv = '''        GL(glUniform1f(\n            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::HAS_NORMAL_TEXTURE),\n            gQuestMrImportedMesh.hasNormalTexture ? 1.0f : 0.0f));\n        GL(glUniform1f(\n            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::HAS_METALLIC_ROUGHNESS_TEXTURE),\n            gQuestMrImportedMesh.hasMetallicRoughnessTexture ? 1.0f : 0.0f));'''
+new_adv = '''        GL(glUniform1f(\n            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::HAS_NORMAL_TEXTURE),\n            (fullPbrMode && gQuestMrImportedMesh.hasNormalTexture) ? 1.0f : 0.0f));\n        GL(glUniform1f(\n            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::HAS_METALLIC_ROUGHNESS_TEXTURE),\n            (fullPbrMode && gQuestMrImportedMesh.hasMetallicRoughnessTexture) ? 1.0f : 0.0f));'''
+if old_adv not in text:
+    raise SystemExit('PBR advanced flags anchor not found')
+text = text.replace(old_adv, new_adv, 1)
+
+# 5) Extend UI labels.
+old_labels = '''    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.145f, -0.0060f, 0.00145f, "RESET");'''
+new_labels = '''    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.123f, -0.0060f, 0.00132f, "PBR FULL");\n    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.158f, -0.0060f, 0.00132f, "MODEL MOVE");\n    QuestMrAppendUiText(vertices, indices, -0.146f, -0.192f + 0.0045f, -0.0060f, 0.00128f, "SCALE");\n    QuestMrAppendUiText(vertices, indices, -0.146f, -0.226f + 0.0045f, -0.0060f, 0.00128f, "ROTATE");\n    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.266f, -0.0060f, 0.00135f, "RESET ALL");'''
+if old_labels not in text:
+    raise SystemExit('UI label anchor not found')
+text = text.replace(old_labels, new_labels, 1)
+
+# 6) Extend tablet geometry and add model controls.
+old_sheet = '''        const Matrix4f sheet = panelPose *\n            Matrix4f::Translation(0.0f, -0.010f, 0.004f) *\n            Matrix4f::Scaling(0.160f, 0.205f, 0.0012f);'''
+new_sheet = '''        const Matrix4f sheet = panelPose *\n            Matrix4f::Translation(0.0f, -0.050f, 0.004f) *\n            Matrix4f::Scaling(0.160f, 0.250f, 0.0012f);'''
+if old_sheet not in text:
+    raise SystemExit('Sheet geometry anchor not found')
+text = text.replace(old_sheet, new_sheet, 1)
+
+old_reset_draw = '''        const Matrix4f resetPad = panelPose *\n            Matrix4f::Translation(0.0f, -0.145f, -0.0028f) *\n            Matrix4f::Scaling(0.058f, 0.016f, 0.0015f);\n        drawUiRect(resetPad, 0.22f, 0.24f, 0.28f);'''
+new_reset_draw = '''        const Matrix4f materialPad = panelPose *\n            Matrix4f::Translation(0.0f, kMaterialY, -0.0028f) *\n            Matrix4f::Scaling(0.120f, 0.014f, 0.0015f);\n        drawUiRect(\n            materialPad,\n            fullPbrMode ? 0.16f : 0.18f,\n            fullPbrMode ? 0.50f : 0.20f,\n            fullPbrMode ? 0.32f : 0.24f);\n\n        const Matrix4f modelMovePad = panelPose *\n            Matrix4f::Translation(0.0f, kModelMoveY, -0.0028f) *\n            Matrix4f::Scaling(0.120f, 0.014f, 0.0015f);\n        drawUiRect(\n            modelMovePad,\n            modelMoveMode ? 0.16f : 0.16f,\n            modelMoveMode ? 0.50f : 0.34f,\n            modelMoveMode ? 0.32f : 0.58f);\n\n        const auto drawModelSlider = [&](float rowY, float value) {\n            const float fullWidth = 2.0f * kSliderHalfWidth;\n            const float minX = kSliderCenterX - kSliderHalfWidth;\n            const float fillWidth = std::max(0.002f, fullWidth * value);\n            const float fillCenterX = minX + fillWidth * 0.5f;\n            const float knobX = minX + fullWidth * value;\n            const Matrix4f track = panelPose *\n                Matrix4f::Translation(kSliderCenterX, rowY, -0.0010f) *\n                Matrix4f::Scaling(kSliderHalfWidth, 0.0030f, 0.0010f);\n            drawUiRect(track, 0.085f, 0.095f, 0.115f);\n            const Matrix4f fill = panelPose *\n                Matrix4f::Translation(fillCenterX, rowY, -0.0022f) *\n                Matrix4f::Scaling(fillWidth * 0.5f, 0.0035f, 0.0011f);\n            drawUiRect(fill, 0.18f, 0.56f, 0.82f);\n            const Matrix4f knob = panelPose *\n                Matrix4f::Translation(knobX, rowY, -0.0035f) *\n                Matrix4f::Scaling(0.0052f, 0.0072f, 0.0012f);\n            drawUiRect(knob, 0.90f, 0.92f, 0.96f);\n        };\n        drawModelSlider(kModelScaleY, modelScaleSlider);\n        drawModelSlider(kModelRotateY, modelRotateSlider);\n\n        const Matrix4f resetPad = panelPose *\n            Matrix4f::Translation(0.0f, kResetY, -0.0028f) *\n            Matrix4f::Scaling(0.070f, 0.016f, 0.0015f);\n    
