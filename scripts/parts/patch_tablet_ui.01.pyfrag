@@ -1,0 +1,196 @@
+    static bool panelPinned = true;
+    static Matrix4f panelPose;
+    static bool pinTouchPrev = false;
+    static bool importTouchPrev = false;
+    static bool resetTouchPrev = false;
+    static Matrix4f importedModelRoot;
+    static bool importedModelPlaced = false;
+
+    constexpr float kSliderCenterX = 0.045f;
+    constexpr float kSliderHalfWidth = 0.075f;
+    constexpr float kSliderTopY = 0.082f;
+    constexpr float kSliderStep = 0.034f;
+    constexpr float kPanelSpawnDistance = -0.70f;
+    constexpr float kPanelSpawnY = -0.055f;
+
+    Matrix4f pointerTipMatrix;
+    bool havePointer = false;
+
+    if (!panelInitialized) {
+        Matrix4f headPose = frameIn.View[0].Inverted();
+        const Matrix4f rightEyePose = frameIn.View[1].Inverted();
+        headPose.M[0][3] = (headPose.M[0][3] + rightEyePose.M[0][3]) * 0.5f;
+        headPose.M[1][3] = (headPose.M[1][3] + rightEyePose.M[1][3]) * 0.5f;
+        headPose.M[2][3] = (headPose.M[2][3] + rightEyePose.M[2][3]) * 0.5f;
+        panelPose = headPose * Matrix4f::Translation(0.0f, kPanelSpawnY, kPanelSpawnDistance);
+        panelInitialized = true;
+        panelPinned = true;
+    }
+
+    if (scene.TrackedControllers.size() >= 2) {
+        const Matrix4f pointerPose(scene.TrackedControllers[1].Pose);
+        pointerTipMatrix = pointerPose * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+        havePointer = true;
+    } else if (!scene.TrackedControllers.empty()) {
+        const Matrix4f pointerPose(scene.TrackedControllers[0].Pose);
+        pointerTipMatrix = pointerPose * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+        havePointer = true;
+    }
+
+    // MOVE mode changes only the panel position. Its room-facing orientation remains stable,
+    // so the controls never flip to the far side of a controller.
+    if (!panelPinned && !scene.TrackedControllers.empty()) {
+        const Matrix4f moverPose(scene.TrackedControllers[0].Pose);
+        const Matrix4f moverTarget = moverPose * Matrix4f::Translation(0.0f, 0.0f, -0.34f);
+        panelPose.M[0][3] = moverTarget.M[0][3];
+        panelPose.M[1][3] = moverTarget.M[1][3];
+        panelPose.M[2][3] = moverTarget.M[2][3];
+    }
+
+    if (havePointer) {
+        const float dx = pointerTipMatrix.M[0][3] - panelPose.M[0][3];
+        const float dy = pointerTipMatrix.M[1][3] - panelPose.M[1][3];
+        const float dz = pointerTipMatrix.M[2][3] - panelPose.M[2][3];
+        const float localX =
+            panelPose.M[0][0] * dx + panelPose.M[1][0] * dy + panelPose.M[2][0] * dz;
+        const float localY =
+            panelPose.M[0][1] * dx + panelPose.M[1][1] * dy + panelPose.M[2][1] * dz;
+        const float localZ =
+            panelPose.M[0][2] * dx + panelPose.M[1][2] * dy + panelPose.M[2][2] * dz;
+
+        if (std::abs(localZ) < 0.060f) {
+            for (int i = 0; i < 6; ++i) {
+                const float rowY = kSliderTopY - float(i) * kSliderStep;
+                const float minX = kSliderCenterX - kSliderHalfWidth;
+                const float maxX = kSliderCenterX + kSliderHalfWidth;
+                if (std::abs(localY - rowY) < 0.014f &&
+                    localX >= minX - 0.010f && localX <= maxX + 0.010f) {
+                    lightSliders[i] = std::max(
+                        0.0f,
+                        std::min(1.0f, (localX - minX) / (2.0f * kSliderHalfWidth)));
+                }
+            }
+
+            const bool resetTouchNow =
+                std::abs(localX) < 0.058f && std::abs(localY + 0.145f) < 0.018f;
+            if (resetTouchNow && !resetTouchPrev) {
+                for (int i = 0; i < 6; ++i) {
+                    lightSliders[i] = defaultLightSliders[i];
+                }
+            }
+            resetTouchPrev = resetTouchNow;
+
+            const bool pinTouchNow =
+                std::abs(localX + 0.073f) < 0.060f && std::abs(localY - 0.140f) < 0.021f;
+            if (pinTouchNow && !pinTouchPrev) {
+                panelPinned = !panelPinned;
+            }
+            pinTouchPrev = pinTouchNow;
+
+            const bool importTouchNow =
+                std::abs(localX - 0.073f) < 0.060f && std::abs(localY - 0.140f) < 0.021f;
+            if (importTouchNow && !importTouchPrev) {
+                gQuestMrImportState = QuestMrLaunchGlbPicker() ? 1 : 3;
+            }
+            importTouchPrev = importTouchNow;
+        } else {
+            pinTouchPrev = false;
+            importTouchPrev = false;
+            resetTouchPrev = false;
+        }
+    } else {
+        pinTouchPrev = false;
+        importTouchPrev = false;
+        resetTouchPrev = false;
+    }
+
+'''
+text = text[:start] + new_controls + text[control_end:]
+
+# ---------------------------------------------------------------------------
+# 3) Imported models also spawn in stable room space in front of the viewer.
+# ---------------------------------------------------------------------------
+old_place_start = text.find('    if (modelLoaded && (importChanged || !importedModelPlaced)) {', start)
+old_place_end = text.find('\n    const float ambientStrength', old_place_start)
+if old_place_start < 0 or old_place_end < 0:
+    raise SystemExit('v0.3.4 imported model placement block not found')
+new_place = r'''    if (modelLoaded && (importChanged || !importedModelPlaced)) {
+        Matrix4f headPose = frameIn.View[0].Inverted();
+        const Matrix4f rightEyePose = frameIn.View[1].Inverted();
+        headPose.M[0][3] = (headPose.M[0][3] + rightEyePose.M[0][3]) * 0.5f;
+        headPose.M[1][3] = (headPose.M[1][3] + rightEyePose.M[1][3]) * 0.5f;
+        headPose.M[2][3] = (headPose.M[2][3] + rightEyePose.M[2][3]) * 0.5f;
+        importedModelRoot = headPose * Matrix4f::Translation(0.0f, -0.08f, -1.00f);
+        importedModelPlaced = true;
+    }
+'''
+text = text[:old_place_start] + new_place + text[old_place_end:]
+
+# ---------------------------------------------------------------------------
+# 4) Replace the unlabeled tablet renderer with the labelled 2D sheet.
+# ---------------------------------------------------------------------------
+ui_start = text.find('    if (haveTablet) {', start)
+if ui_start < 0:
+    raise SystemExit('v0.3.4 haveTablet UI block not found')
+ui_end = text.find('    GL(glBindVertexArray(0));', ui_start)
+if ui_end < 0:
+    raise SystemExit('v0.3.4 UI block end not found')
+ui_end += len('    GL(glBindVertexArray(0));')
+
+new_ui = r'''    if (panelInitialized) {
+        QuestMrBuildUiTextMesh();
+
+        const auto drawUiRect = [&](const Matrix4f& model, float r, float g, float b) {
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                1.0f));
+            GL(glUniform3f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+                r,
+                g,
+                b));
+            GL(glUniformMatrix4fv(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+                1,
+                GL_TRUE,
+                &model.M[0][0]));
+            GL(glDrawElements(GL_TRIANGLES, scene.Box.GetIndexCount(), GL_UNSIGNED_SHORT, NULL));
+        };
+
+        // UI is a layered 2D sheet. Disable scene-depth testing between UI layers while the
+        // shader still handles real-world Environment Depth occlusion.
+        GL(glDisable(GL_DEPTH_TEST));
+
+        const Matrix4f sheet = panelPose *
+            Matrix4f::Translation(0.0f, -0.010f, 0.004f) *
+            Matrix4f::Scaling(0.160f, 0.205f, 0.0012f);
+        drawUiRect(sheet, 0.025f, 0.030f, 0.040f);
+
+        const Matrix4f titleBar = panelPose *
+            Matrix4f::Translation(0.0f, 0.171f, -0.0005f) *
+            Matrix4f::Scaling(0.148f, 0.024f, 0.0014f);
+        drawUiRect(titleBar, 0.060f, 0.072f, 0.092f);
+
+        const Matrix4f pinPad = panelPose *
+            Matrix4f::Translation(-0.073f, 0.140f, -0.0030f) *
+            Matrix4f::Scaling(0.062f, 0.017f, 0.0017f);
+        drawUiRect(pinPad, panelPinned ? 0.14f : 0.34f, panelPinned ? 0.42f : 0.30f, panelPinned ? 0.62f : 0.18f);
+
+        const Matrix4f importPad = panelPose *
+            Matrix4f::Translation(0.073f, 0.140f, -0.0030f) *
+            Matrix4f::Scaling(0.062f, 0.017f, 0.0017f);
+        if (gQuestMrImportState == 2) {
+            drawUiRect(importPad, 0.18f, 0.48f, 0.34f);
+        } else if (gQuestMrImportState == 3) {
+            drawUiRect(importPad, 0.58f, 0.20f, 0.16f);
+        } else if (gQuestMrImportState == 1) {
+            drawUiRect(importPad, 0.56f, 0.43f, 0.12f);
+        } else {
+            drawUiRect(importPad, 0.15f, 0.36f, 0.62f);
+        }
+
+        for (int i = 0; i < 6; ++i) {
+            const float rowY = kSliderTopY - float(i) * kSliderStep;
+            const float fullWidth = 2.0f * kSliderHalfWidth;
+            const float fillWidth = std::max(0.002f, fullWidth * lightSliders[i]);
+            const float minX = kSliderCenterX - kSliderHalfWidth;
