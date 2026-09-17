@@ -1,0 +1,82 @@
+from pathlib import Path
+
+ROOT = Path('meta-spatial-samples/MediaPlayerSample')
+APP = ROOT / 'app'
+
+if not ROOT.exists():
+    raise SystemExit(f'MediaPlayerSample not found at {ROOT}')
+
+# ---------------------------------------------------------------------------
+# Gradle: keep Meta's current Spatial SDK 0.14.0 dependency set, but brand the
+# APK for our prototype and remove Spatial Editor export requirements from CI.
+# ---------------------------------------------------------------------------
+gradle = APP / 'build.gradle.kts'
+text = gradle.read_text()
+text = text.replace(
+    'applicationId = "com.meta.spatial.samples.mediaplayersample"',
+    'applicationId = "com.bvultrex.questdepthbrowser"',
+    1,
+)
+text = text.replace('versionCode = 1', 'versionCode = 1', 1)
+text = text.replace('versionName = "1.0"', 'versionName = "0.1.0"', 1)
+
+scene_anchor = 'val projectDir = layout.projectDirectory\n'
+if scene_anchor in text:
+    text = text[: text.index(scene_anchor)] + '''spatial {\n  // CI prototype: use the already-exported sample assets.\n  // No Meta Spatial Editor installation is required on the runner.\n  allowUsageDataCollection.set(false)\n}\n'''
+
+gradle.write_text(text)
+
+# ---------------------------------------------------------------------------
+# Manifest: keep Meta's Quest permissions/features, but launch our activity.
+# ---------------------------------------------------------------------------
+manifest = APP / 'src/main/AndroidManifest.xml'
+text = manifest.read_text()
+text = text.replace(
+    '<application android:allowBackup="false" android:label="Media Player Sample">',
+    '<application android:allowBackup="false" android:label="Quest Depth Browser">',
+    1,
+)
+text = text.replace(
+    'android:name="com.meta.spatial.samples.mediaplayersample.MediaPlayerSampleActivity"',
+    'android:name="com.meta.spatial.samples.mediaplayersample.QuestDepthBrowserActivity"',
+    1,
+)
+manifest.write_text(text)
+
+# ---------------------------------------------------------------------------
+# IDs and Android UI rendered into the spatial panel.
+# ---------------------------------------------------------------------------
+values = APP / 'src/main/res/values'
+values.mkdir(parents=True, exist_ok=True)
+(values / 'depth_browser_ids.xml').write_text('''<?xml version="1.0" encoding="utf-8"?>\n<resources>\n  <item name="depth_browser_panel" type="id" />\n</resources>\n''')
+
+layout = APP / 'src/main/res/layout/depth_browser_layout.xml'
+layout.write_text('''<?xml version="1.0" encoding="utf-8"?>\n<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"\n    android:layout_width="match_parent"\n    android:layout_height="match_parent"\n    android:orientation="vertical"\n    android:background="#11151B">\n\n  <LinearLayout\n      android:layout_width="match_parent"\n      android:layout_height="64dp"\n      android:orientation="horizontal"\n      android:gravity="center_vertical"\n      android:paddingHorizontal="6dp"\n      android:background="#202731">\n\n    <Button\n        android:id="@+id/browser_back"\n        android:layout_width="58dp"\n        android:layout_height="52dp"\n        android:text="◀" />\n\n    <Button\n        android:id="@+id/browser_forward"\n        android:layout_width="58dp"\n        android:layout_height="52dp"\n        android:text="▶" />\n\n    <Button\n        android:id="@+id/browser_reload"\n        android:layout_width="58dp"\n        android:layout_height="52dp"\n        android:text="↻" />\n\n    <EditText\n        android:id="@+id/browser_address"\n        android:layout_width="0dp"\n        android:layout_height="52dp"\n        android:layout_weight="1"\n        android:layout_marginHorizontal="6dp"\n        android:singleLine="true"\n        android:inputType="textUri"\n        android:imeOptions="actionGo"\n        android:hint="https://..."\n        android:textColor="#F2F5F8"\n        android:textColorHint="#9AA7B5"\n        android:backgroundTint="#5D7087" />\n\n    <Button\n        android:id="@+id/browser_go"\n        android:layout_width="66dp"\n        android:layout_height="52dp"\n        android:text="GO" />\n\n    <Button\n        android:id="@+id/browser_depth"\n        android:layout_width="112dp"\n        android:layout_height="52dp"\n        android:text="DEPTH ON" />\n  </LinearLayout>\n\n  <ProgressBar\n      android:id="@+id/browser_progress"\n      style="?android:attr/progressBarStyleHorizontal"\n      android:layout_width="match_parent"\n      android:layout_height="4dp"\n      android:max="100" />\n\n  <WebView\n      android:id="@+id/browser_webview"\n      android:layout_width="match_parent"\n      android:layout_height="0dp"\n      android:layout_weight="1" />\n\n</LinearLayout>\n''')
+
+# ---------------------------------------------------------------------------
+# Spatial activity: passthrough + automatic Environment Depth occlusion +
+# one grabbable mesh-rendered Android WebView panel.
+# ---------------------------------------------------------------------------
+java_dir = APP / 'src/main/java/com/meta/spatial/samples/mediaplayersample'
+java_dir.mkdir(parents=True, exist_ok=True)
+activity = java_dir / 'QuestDepthBrowserActivity.kt'
+activity.write_text(r'''package com.meta.spatial.samples.mediaplayersample
+
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.view.View
+import android.view.inputmethod.EditorInfo
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.Button
+import android.widget.EditText
+import android.widget.ProgressBar
+import com.meta.spatial.core.Entity
+import com.meta.spatial.core.Pose
+import com.meta.spatial.core.SpatialFeature
+import com.meta.spatial.core.Vector3
+import com.meta.spatial.runtime.EnvironmentDepthMode
+import com.meta.spatial.runtime.ReferenceSpace
+import com.meta.spatial.runtime.SessionState
+import com.meta.spatial.toolkit.AppSystemActivity
