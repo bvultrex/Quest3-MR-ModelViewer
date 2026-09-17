@@ -1,0 +1,144 @@
+
+highp float metallic = clamp(MetallicFactor, 0.0f, 1.0f);
+highp float roughness = clamp(RoughnessFactor, 0.04f, 1.0f);
+if (PbrMode > 0.5f && HasMetallicRoughnessTexture > 0.5f) {
+    highp vec4 mrSample = texture(Texture3, pbrUv);
+    roughness = clamp(roughness * mrSample.g, 0.04f, 1.0f);
+    metallic = clamp(metallic * mrSample.b, 0.0f, 1.0f);
+}
+
+highp vec3 lightDir = normalize(LightDirection);
+highp float nDotL = max(dot(surfaceNormal, lightDir), 0.0f);
+highp vec3 litColor;
+if (PbrMode > 0.5f) {
+    highp vec3 viewDir = normalize(CameraWorldPosition - cubeWorldPosition.xyz);
+    highp vec3 halfDir = normalize(lightDir + viewDir);
+    highp float nDotH = max(dot(surfaceNormal, halfDir), 0.0f);
+    highp float specPower = mix(128.0f, 4.0f, roughness);
+    highp vec3 f0 = mix(vec3(0.04f), materialColor.rgb, metallic);
+    highp vec3 diffuse = materialColor.rgb * (1.0f - metallic);
+    highp vec3 specular = f0 * pow(nDotH, specPower) * mix(1.8f, 0.35f, roughness);
+    litColor = materialColor.rgb * AmbientStrength +
+        LightTint * KeyIntensity * nDotL * (diffuse + specular);
+} else {
+    litColor = materialColor.rgb *
+        (vec3(AmbientStrength) + LightTint * (KeyIntensity * nDotL));
+}
+
+litColor *= exp2(Exposure);
+highp vec3 finalColor = mix(litColor, UiColor, clamp(UiMode, 0.0f, 1.0f));
+outColor = vec4(finalColor, materialColor.a * visibility);'''
+text = text[:lighting_start] + pbr_lighting + text[lighting_end:]
+
+# ---------------------------------------------------------------------------
+# 4) Bind material textures only for the imported model, then restore the UI
+#    path. Texture unit 0 remains dedicated to Environment Depth.
+# ---------------------------------------------------------------------------
+model_start = text.find('    // Render only the imported model. No sample/controller cubes remain.')
+model_end = text.find('\n\n    if (panelInitialized) {', model_start)
+if model_start < 0 or model_end < 0:
+    raise SystemExit('Imported-model render block anchors not found')
+
+pbr_render = r'''    // Render only the imported model. No sample/controller cubes remain.
+    if (gQuestMrImportedMesh.loaded && importedModelPlaced) {
+        const Matrix4f importedModel = importedModelRoot *
+            Matrix4f::Scaling(
+                gQuestMrImportedMesh.fitScale,
+                gQuestMrImportedMesh.fitScale,
+                gQuestMrImportedMesh.fitScale) *
+            Matrix4f::Translation(
+                -gQuestMrImportedMesh.center[0],
+                -gQuestMrImportedMesh.center[1],
+                -gQuestMrImportedMesh.center[2]);
+
+        Matrix4f leftEyePose = frameIn.View[0].Inverted();
+        const Matrix4f rightEyePose = frameIn.View[1].Inverted();
+        const float cameraWorldPosition[3] = {
+            (leftEyePose.M[0][3] + rightEyePose.M[0][3]) * 0.5f,
+            (leftEyePose.M[1][3] + rightEyePose.M[1][3]) * 0.5f,
+            (leftEyePose.M[2][3] + rightEyePose.M[2][3]) * 0.5f};
+
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::PBR_MODE),
+            1.0f));
+        GL(glUniform3fv(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::CAMERA_WORLD_POSITION),
+            1,
+            cameraWorldPosition));
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::METALLIC_FACTOR),
+            gQuestMrImportedMesh.metallicFactor));
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::ROUGHNESS_FACTOR),
+            gQuestMrImportedMesh.roughnessFactor));
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::NORMAL_SCALE),
+            gQuestMrImportedMesh.normalScale));
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::HAS_BASE_COLOR_TEXTURE),
+            gQuestMrImportedMesh.hasBaseColorTexture ? 1.0f : 0.0f));
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::HAS_NORMAL_TEXTURE),
+            gQuestMrImportedMesh.hasNormalTexture ? 1.0f : 0.0f));
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::HAS_METALLIC_ROUGHNESS_TEXTURE),
+            gQuestMrImportedMesh.hasMetallicRoughnessTexture ? 1.0f : 0.0f));
+
+        GL(glActiveTexture(GL_TEXTURE1));
+        GL(glBindTexture(GL_TEXTURE_2D, gQuestMrImportedMesh.baseColorTexture));
+        GL(glActiveTexture(GL_TEXTURE2));
+        GL(glBindTexture(GL_TEXTURE_2D, gQuestMrImportedMesh.normalTexture));
+        GL(glActiveTexture(GL_TEXTURE3));
+        GL(glBindTexture(GL_TEXTURE_2D, gQuestMrImportedMesh.metallicRoughnessTexture));
+        GL(glActiveTexture(GL_TEXTURE0));
+
+        GL(glBindVertexArray(gQuestMrImportedMesh.vao));
+        GL(glUniformMatrix4fv(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+            1,
+            GL_TRUE,
+            &importedModel.M[0][0]));
+        GL(glDrawElements(
+            GL_TRIANGLES,
+            gQuestMrImportedMesh.indexCount,
+            GL_UNSIGNED_INT,
+            nullptr));
+
+        GL(glActiveTexture(GL_TEXTURE1));
+        GL(glBindTexture(GL_TEXTURE_2D, 0));
+        GL(glActiveTexture(GL_TEXTURE2));
+        GL(glBindTexture(GL_TEXTURE_2D, 0));
+        GL(glActiveTexture(GL_TEXTURE3));
+        GL(glBindTexture(GL_TEXTURE_2D, 0));
+        GL(glActiveTexture(GL_TEXTURE0));
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::PBR_MODE),
+            0.0f));
+        GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+    }
+'''
+text = text[:model_start] + pbr_render + text[model_end:]
+
+# PBR_MODE must also be explicitly off before any UI-only frame where no model
+# was loaded yet. Uniforms default to zero, but setting it removes ambiguity
+# after imports are destroyed/reloaded.
+ui_mode_anchor = '''    GL(glUniform1f(
+        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+        0.0f));'''
+if ui_mode_anchor not in text:
+    raise SystemExit('UI mode render-state anchor not found')
+text = text.replace(
+    ui_mode_anchor,
+    ui_mode_anchor + '''
+    GL(glUniform1f(
+        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::PBR_MODE),
+        0.0f));''',
+    1,
+)
+
+cpp.write_text(text)
+print('v0.3.6 authored NORMAL + TEXCOORD_0: ON')
+print('v0.3.6 BaseColor texture: ON')
+print('v0.3.6 Normal texture: ON')
+print('v0.3.6 Metallic/Roughness texture: ON')
+print('v0.3.6 material scope: one material per imported GLB')
