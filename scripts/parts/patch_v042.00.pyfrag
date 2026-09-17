@@ -1,0 +1,28 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v0.3.12: hardware feedback showed two independent limits were wrong.
+# Small reference models with 2K/2K/4K PBR maps need ~128 MiB of mipmapped
+# texture residency and were being rejected by the old 96 MiB texture guard.
+# Conversely, the 3.03M-triangle / 2K-texture model passes memory preflight but
+# reproducibly stalls Quest tracking/system UI after import, so cap synchronous
+# rendering below that measured failure point until LOD/chunked rendering exists.
+replacements = {
+    'constexpr size_t kMaxTriangles = 4000000;':
+        'constexpr size_t kMaxTriangles = 2000000;',
+    'constexpr uint64_t kMaxTextureGpuBytes = 96ULL * 1024ULL * 1024ULL;':
+        'constexpr uint64_t kMaxTextureGpuBytes = 160ULL * 1024ULL * 1024ULL;',
+    'QuestMR: preflight rejected >4M triangles':
+        'QuestMR: preflight rejected >2M triangles (Quest hardware safety cap)',
+}
+for old, new in replacements.items():
+    if old not in text:
+        raise SystemExit('v0.3.12 anchor missing: ' + old)
+    text = text.replace(old, new, 1)
+
+cpp.write_text(text)
+print('v0.3.12 texture budget: 160 MiB mipmapped total')
+print('v0.3.12 synchronous render cap: 2,000,000 triangles')
+print('v0.3.12 safe boot + fresh picker import path preserved')
