@@ -1,0 +1,69 @@
+            const float fillCenterX = minX + fillWidth * 0.5f;
+            const float knobX = minX + fullWidth * lightSliders[i];
+
+            const Matrix4f track = panelPose *
+                Matrix4f::Translation(kSliderCenterX, rowY, -0.0010f) *
+                Matrix4f::Scaling(kSliderHalfWidth, 0.0030f, 0.0010f);
+            drawUiRect(track, 0.085f, 0.095f, 0.115f);
+
+            const Matrix4f fill = panelPose *
+                Matrix4f::Translation(fillCenterX, rowY, -0.0022f) *
+                Matrix4f::Scaling(fillWidth * 0.5f, 0.0035f, 0.0011f);
+            drawUiRect(fill, 0.16f, 0.50f, 0.78f);
+
+            const Matrix4f knob = panelPose *
+                Matrix4f::Translation(knobX, rowY, -0.0035f) *
+                Matrix4f::Scaling(0.0052f, 0.0072f, 0.0012f);
+            drawUiRect(knob, 0.90f, 0.92f, 0.96f);
+        }
+
+        const Matrix4f resetPad = panelPose *
+            Matrix4f::Translation(0.0f, -0.145f, -0.0028f) *
+            Matrix4f::Scaling(0.058f, 0.016f, 0.0015f);
+        drawUiRect(resetPad, 0.22f, 0.24f, 0.28f);
+
+        // Draw all labels in one call after the backgrounds/controls.
+        if (gQuestMrUiTextMesh.built && gQuestMrUiTextMesh.indexCount > 0) {
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                1.0f));
+            GL(glUniform3f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+                0.91f,
+                0.94f,
+                0.98f));
+            GL(glUniformMatrix4fv(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+                1,
+                GL_TRUE,
+                &panelPose.M[0][0]));
+            GL(glBindVertexArray(gQuestMrUiTextMesh.vao));
+            GL(glDrawElements(
+                GL_TRIANGLES,
+                gQuestMrUiTextMesh.indexCount,
+                GL_UNSIGNED_INT,
+                nullptr));
+            GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+        }
+
+        if (havePointer) {
+            const Matrix4f pointerMarker =
+                pointerTipMatrix * Matrix4f::Scaling(0.0040f, 0.0040f, 0.0010f);
+            drawUiRect(pointerMarker, 0.96f, 0.98f, 1.0f);
+        }
+
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+            0.0f));
+        GL(glEnable(GL_DEPTH_TEST));
+    }
+
+    GL(glBindVertexArray(0));'''
+text = text[:ui_start] + new_ui + text[ui_end:]
+
+cpp.write_text(text)
+print('v0.3.5 room-spawned tablet: ON')
+print('v0.3.5 default state: PINNED, 70 cm in front of viewer')
+print('v0.3.5 labelled buttons/sliders: ON')
+print('v0.3.5 static text mesh: one draw call')
+print('v0.3.5 imported model spawn: 1.0 m in front of viewer')
