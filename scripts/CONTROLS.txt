@@ -1,24 +1,31 @@
-Quest3 MR Model Viewer v0.3.6 - Room Tablet + PBR GLB Import
+Quest3 MR Model Viewer v0.3.8 - Trigger UI + GLB Return Fix
 
-The UI spawns already visible about 70 cm in front of the viewer and starts pinned in room space.
-It does not follow or sit behind a controller.
+UI INTERACTION
+- Point at a control with the controller pointer.
+- Proximity/hover alone never activates a control anymore.
+- Buttons activate on a trigger click.
+- Sliders move only while the trigger is held; drag and release to set the value.
 
 PIN MOVE
-- Tap once to enter MOVE mode.
+- Point at PIN MOVE and click the trigger to enter MOVE mode.
 - Controller 0 moves the tablet position while MOVE is active.
-- Tap again to pin the tablet in room space.
-- The tablet keeps its readable room-facing orientation while moving.
+- Click PIN MOVE again to pin the tablet in room space.
 
 IMPORT GLB
-- Opens the Android document picker.
-- Select a binary .glb file.
-- The copied model is validated before replacing the currently loaded mesh.
-- A loaded model spawns about 1 metre in front of the viewer.
-- v0.3.6 reads authored normals and UVs.
-- BaseColor, Normal and Metallic/Roughness textures are supported for the first material.
-- v0.3.6 intentionally accepts one material per imported GLB; additional materials are skipped safely.
+- Point at IMPORT GLB and click the trigger.
+- Android's document picker opens.
+- After selection or cancellation the viewer is explicitly brought back to the foreground.
+- Imported files are validated transactionally before replacing the current mesh.
+- Current guard: 192 MiB, 3,000,000 vertices, 12,000,000 indices.
 
-LIGHTING SLIDERS
+MODEL
+- PBR FULL toggles Normal + Metallic/Roughness processing.
+- MODEL MOVE toggles controller-driven model placement.
+- SCALE is adjusted by holding trigger and dragging the slider.
+- ROTATE is adjusted by holding trigger and dragging the slider.
+- RESET ALL restores lighting and model transform defaults.
+
+LIGHTING
 - AMBIENT
 - KEY LIGHT
 - AZIMUTH
@@ -26,7 +33,5 @@ LIGHTING SLIDERS
 - WARMTH
 - EXPOSURE
 
-RESET restores the default lighting values.
-
 The colourful Meta sample/controller cubes remain removed.
-Environment Depth soft occlusion and 4x MSAA remain enabled.
+Environment Depth soft occlusion and MSAA quality pass remain enabled.
