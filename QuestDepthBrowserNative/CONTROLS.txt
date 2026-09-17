@@ -1,27 +1,26 @@
-Quest Depth Browser Native v0.2.5
+Quest Depth Browser Native v0.3.0
 
 Expected behavior:
 - Passthrough room visible.
 - Browser remains compositor-sharp.
-- Environment Depth still occludes the browser behind real objects.
-- The GPU producer surface stays fixed for the full app lifetime.
-- Spatial aspect changes resize only a centered Android/WebView viewport inside that fixed producer.
-- The native shader samples exactly that centered viewport, so the page and toolbar should no longer be clipped or stuck to the right edge.
-- Chromium receives an explicit resize event after the viewport relayout.
+- Environment Depth uses the same OpenGL depth-range convention as the proven GLB viewer.
+- The Android Presentation is constrained to the exact producer pixel size.
+- SurfaceTexture crop metadata is not used for browser sampling; the native renderer samples the known producer buffer directly.
 - Sticky Quest-style URL/navigation bar and DE-QWERTZ remain enabled.
-- Native OpenXR border/corner marker remains enabled for geometry diagnostics.
+- Quest keyboard request for focused web/address inputs remains enabled.
 
 Controls:
-- Right controller aim: point at the browser.
-- Right Trigger: click/tap inside Chromium.
-- Right Grip on browser body: grab and move the whole window.
-- Right Grip on a corner: drag that corner to resize width and height independently; opposite corner remains anchored.
-- Address bar: click, then type with the physical keyboard.
+- Either controller can take ownership of the browser pointer.
+- Trigger on either hand: click/tap inside Chromium.
+- Grip on either hand: move the whole window.
+- Grip on a corner: resize width and height independently; opposite corner remains anchored.
+- Hand ownership persists until the other hand clicks or grips.
+- Address bar: click, then type with physical keyboard or Quest IME when available.
 - DE-QWERTZ remap remains enabled for the MX Keys path.
-- ^ collapses the sticky URL/navigation bar; the small down-chevron restores it.
+- ^ collapses the sticky URL/navigation bar; the down-chevron restores it.
 
-v0.2.5 geometry checkpoint:
-- GO and ^ should remain visible at the right side of the toolbar.
-- Centered web content/dialogs should remain centered while changing the spatial-window aspect.
-- Resizing must not change the underlying SurfaceTexture / VirtualDisplay buffer size.
-- Sharp per-eye compositor quads + Environment Depth alpha-mask core are unchanged.
+v0.3.0 reset checkpoints:
+- No persistent crop on the right edge. GO and ^ must be visible.
+- Google/Wikipedia/dialogs should remain centered while changing aspect.
+- Environment Depth should look materially closer to the GLB viewer: correct near/far ordering, cleaner furniture edges, less leakage.
+- Left and right controller should both remain usable without holding left grip continuously.
