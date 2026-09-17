@@ -1,0 +1,183 @@
+    jmethodID getClassLoader = env->GetMethodID(
+        activityClass, "getClassLoader", "()Ljava/lang/ClassLoader;");
+    jobject classLoader = env->CallObjectMethod(activity, getClassLoader);
+    jclass classLoaderClass = env->FindClass("java/lang/ClassLoader");
+    jmethodID loadClass = env->GetMethodID(
+        classLoaderClass,
+        "loadClass",
+        "(Ljava/lang/String;)Ljava/lang/Class;");
+    jstring className = env->NewStringUTF(
+        "com.oculus.xrpassthroughocclusion.QuestDepthBrowserBridge");
+    jobject bridge = env->CallObjectMethod(classLoader, loadClass, className);
+    env->DeleteLocalRef(className);
+    env->DeleteLocalRef(classLoader);
+    env->DeleteLocalRef(activityClass);
+    env->DeleteLocalRef(classLoaderClass);
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        return nullptr;
+    }
+    return reinterpret_cast<jclass>(bridge);
+}
+
+bool QuestDepthBrowserNative::CreateWebViewSurface(JNIEnv* env, jobject activity) {
+    ActivityObject = env->NewGlobalRef(activity);
+    jclass surfaceTextureClass = env->FindClass("android/graphics/SurfaceTexture");
+    if (surfaceTextureClass == nullptr) return false;
+
+    jmethodID ctor = env->GetMethodID(surfaceTextureClass, "<init>", "(Z)V");
+    jobject localSurfaceTexture = env->NewObject(surfaceTextureClass, ctor, JNI_FALSE);
+    if (localSurfaceTexture == nullptr) return false;
+
+    jmethodID setDefaultBufferSize = env->GetMethodID(
+        surfaceTextureClass, "setDefaultBufferSize", "(II)V");
+    env->CallVoidMethod(
+        localSurfaceTexture,
+        setDefaultBufferSize,
+        TextureWidth,
+        TextureHeight);
+
+    SurfaceTextureObject = env->NewGlobalRef(localSurfaceTexture);
+    SurfaceUpdateTexImage = env->GetMethodID(surfaceTextureClass, "updateTexImage", "()V");
+    SurfaceGetTransformMatrix = env->GetMethodID(
+        surfaceTextureClass, "getTransformMatrix", "([F)V");
+    SurfaceDetachFromGlContext = env->GetMethodID(
+        surfaceTextureClass, "detachFromGLContext", "()V");
+
+    jmethodID attachToGlContext = env->GetMethodID(
+        surfaceTextureClass, "attachToGLContext", "(I)V");
+
+    glGenTextures(1, &ExternalTexture);
+    env->CallVoidMethod(SurfaceTextureObject, attachToGlContext, jint(ExternalTexture));
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        return false;
+    }
+
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, ExternalTexture);
+    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_EXTERNAL_OES, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0);
+
+    SurfaceTransformArray = reinterpret_cast<jfloatArray>(
+        env->NewGlobalRef(env->NewFloatArray(16)));
+    SurfaceTransform.fill(0.0f);
+    SurfaceTransform[0] = 1.0f;
+    SurfaceTransform[5] = 1.0f;
+    SurfaceTransform[10] = 1.0f;
+    SurfaceTransform[15] = 1.0f;
+
+    jclass bridgeClass = LoadBridgeClass(env, activity);
+    if (bridgeClass == nullptr) return false;
+    jmethodID startMethod = env->GetStaticMethodID(
+        bridgeClass,
+        "start",
+        "(Landroid/app/Activity;Landroid/graphics/SurfaceTexture;III)V");
+    if (startMethod == nullptr) {
+        env->DeleteLocalRef(bridgeClass);
+        return false;
+    }
+    env->CallStaticVoidMethod(
+        bridgeClass,
+        startMethod,
+        activity,
+        SurfaceTextureObject,
+        TextureWidth,
+        TextureHeight,
+        kDensityDpi);
+    env->DeleteLocalRef(bridgeClass);
+    env->DeleteLocalRef(localSurfaceTexture);
+    env->DeleteLocalRef(surfaceTextureClass);
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        return false;
+    }
+
+    return true;
+}
+
+bool QuestDepthBrowserNative::CreateSwapchains(
+    XrSession session,
+    uint32_t maxWidth,
+    uint32_t maxHeight) {
+    float aspect = float(kRequestedHeight) / float(kRequestedWidth);
+    TextureWidth = std::min<int>(kRequestedWidth, int(maxWidth));
+    TextureHeight = int(std::round(float(TextureWidth) * aspect));
+    if (TextureHeight > int(maxHeight)) {
+        TextureHeight = int(maxHeight);
+        TextureWidth = int(std::round(float(TextureHeight) / aspect));
+    }
+    TextureWidth = std::max(TextureWidth, 1024);
+    TextureHeight = std::max(TextureHeight, 640);
+
+    for (int eye = 0; eye < 2; ++eye) {
+        XrSwapchainCreateInfo createInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+        createInfo.usageFlags =
+            XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+        createInfo.format = GL_SRGB8_ALPHA8;
+        createInfo.sampleCount = 1;
+        createInfo.width = uint32_t(TextureWidth);
+        createInfo.height = uint32_t(TextureHeight);
+        createInfo.faceCount = 1;
+        createInfo.arraySize = 1;
+        createInfo.mipCount = 1;
+        if (!CheckXr("xrCreateSwapchain(browser)", xrCreateSwapchain(
+                session, &createInfo, &Swapchains[eye]))) {
+            return false;
+        }
+        uint32_t count = 0;
+        if (!CheckXr("xrEnumerateSwapchainImages(browser count)",
+                xrEnumerateSwapchainImages(Swapchains[eye], 0, &count, nullptr))) {
+            return false;
+        }
+        SwapchainImages[eye].resize(count);
+        for (auto& image : SwapchainImages[eye]) {
+            image.type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+            image.next = nullptr;
+        }
+        if (!CheckXr("xrEnumerateSwapchainImages(browser)",
+                xrEnumerateSwapchainImages(
+                    Swapchains[eye],
+                    count,
+                    &count,
+                    reinterpret_cast<XrSwapchainImageBaseHeader*>(
+                        SwapchainImages[eye].data())))) {
+            return false;
+        }
+    }
+
+    QDB_LOGI("browser swapchains: %dx%d per eye", TextureWidth, TextureHeight);
+    return true;
+}
+
+bool QuestDepthBrowserNative::Initialize(
+    JNIEnv* env,
+    jobject activity,
+    XrSession session,
+    uint32_t maxSwapchainWidth,
+    uint32_t maxSwapchainHeight) {
+    Session = session;
+    if (!CreateSwapchains(session, maxSwapchainWidth, maxSwapchainHeight)) return false;
+    if (!CreateProgram()) return false;
+    glGenFramebuffers(1, &Framebuffer);
+    if (!CreateWebViewSurface(env, activity)) return false;
+    Ready = true;
+    QDB_LOGI("native depth browser initialized");
+    return true;
+}
+
+void QuestDepthBrowserNative::UpdateBrowserTexture(JNIEnv* env) {
+    if (SurfaceTextureObject == nullptr) return;
+    env->CallVoidMethod(SurfaceTextureObject, SurfaceUpdateTexImage);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return;
+    }
+    env->CallVoidMethod(
+        SurfaceTextureObject,
+        SurfaceGetTransformMatrix,
