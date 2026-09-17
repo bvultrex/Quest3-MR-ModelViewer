@@ -1,0 +1,29 @@
+Quest3 MR Model Viewer v0.3.5 - Room Tablet + GLB Import
+
+The UI now spawns already visible about 70 cm in front of the viewer and starts pinned in room space.
+It no longer follows or sits behind a controller.
+
+PIN MOVE
+- Tap once to enter MOVE mode.
+- Controller 0 moves the tablet position while MOVE is active.
+- Tap again to pin the tablet in room space.
+- The tablet keeps its readable room-facing orientation while moving.
+
+IMPORT GLB
+- Opens the Android document picker.
+- Select a .glb file.
+- The copied model is validated before replacing the currently loaded mesh.
+- A loaded model spawns about 1 metre in front of the viewer.
+
+LIGHTING SLIDERS
+- AMBIENT
+- KEY LIGHT
+- AZIMUTH
+- ELEVATION
+- WARMTH
+- EXPOSURE
+
+RESET restores the default lighting values.
+
+The colourful Meta sample/controller cubes remain removed.
+Environment Depth soft occlusion and 4x MSAA remain enabled.
