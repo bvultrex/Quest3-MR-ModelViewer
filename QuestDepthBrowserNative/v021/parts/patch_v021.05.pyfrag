@@ -1,0 +1,80 @@
+                controllerSpace, app.LocalSpace, frameState.predictedDisplayTime, &loc));
+            app.appRenderer.scene.TrackedControllers.push_back({});
+            app.appRenderer.scene.TrackedControllers.back().Pose = OvrFromXr(loc.pose);
+        }
+
+        XrPosef browserAimPose{};
+        browserAimPose.orientation.w = 1.0f;
+        bool browserAimActive = false;
+        if (rightControllerActive && rightControllerAimSpace != XR_NULL_HANDLE) {
+            XrSpaceLocation browserAimLocation{XR_TYPE_SPACE_LOCATION};
+            OXR(xrLocateSpace(
+                rightControllerAimSpace,
+                app.LocalSpace,
+                frameState.predictedDisplayTime,
+                &browserAimLocation));
+            const XrSpaceLocationFlags requiredFlags =
+                XR_SPACE_LOCATION_POSITION_VALID_BIT |
+                XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+            if ((browserAimLocation.locationFlags & requiredFlags) == requiredFlags) {
+                browserAimPose = browserAimLocation.pose;
+                browserAimActive = true;
+            }
+        }
+
+        AppRenderer::FrameIn frameIn;
+'''
+main = replace_once(main, controller_anchor, controller_replacement, 'controller aim capture')
+
+render_anchor = '''#if defined(XR_USE_PLATFORM_ANDROID)
+        nativeBrowser.Render(
+'''
+render_replacement = '''#if defined(XR_USE_PLATFORM_ANDROID)
+        nativeBrowser.HandleInput(
+            Env,
+            browserAimPose,
+            browserAimActive,
+            boolState.currentState == XR_TRUE,
+            rightGripState.currentState,
+            rightThumbstickState.currentState.y);
+        nativeBrowser.Render(
+'''
+main = replace_once(main, render_anchor, render_replacement, 'browser input feed')
+main_path.write_text(main)
+
+# ---------------------------------------------------------------------------
+# Forward hardware keyboard events from the NativeActivity to the virtual
+# display browser. The bridge handles DE-QWERTZ remapping.
+# ---------------------------------------------------------------------------
+activity_path = JAVA / 'MainNativeActivity.java'
+activity = activity_path.read_text()
+activity = replace_once(
+    activity,
+    'import android.util.Log;\n',
+    'import android.util.Log;\nimport android.view.KeyEvent;\n',
+    'MainNativeActivity KeyEvent import')
+activity = replace_once(
+    activity,
+    '''  @Override
+  public void onDestroy() {
+''',
+    '''  @Override
+  public boolean dispatchKeyEvent(KeyEvent event) {
+    if (QuestDepthBrowserBridge.handleHardwareKey(event)) {
+      return true;
+    }
+    return super.dispatchKeyEvent(event);
+  }
+
+  @Override
+  public void onDestroy() {
+''',
+    'hardware keyboard forwarding')
+activity_path.write_text(activity)
+
+print('Quest Depth Browser Native v0.2.1 interaction patch applied')
+print('Controller ray -> Android MotionEvent: ON')
+print('Right grip move: ON')
+print('Right grip + thumbstick Y scale: ON')
+print('Dynamic panel pose/size -> Environment Depth mask: ON')
+print('NativeActivity hardware keyboard forwarding: ON')
