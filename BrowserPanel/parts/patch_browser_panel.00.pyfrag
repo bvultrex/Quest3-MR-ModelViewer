@@ -1,0 +1,186 @@
+from pathlib import Path
+import shutil
+
+ROOT = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion')
+SRC = ROOT / 'Src'
+ANDROID = ROOT / 'Projects/Android'
+REPO = Path('BrowserPanel')
+
+# ---------------------------------------------------------------------------
+# Android WebView bridge + internet permission.
+# ---------------------------------------------------------------------------
+java_src = REPO / 'java/com/oculus/xrpassthroughocclusion/QuestBrowserPanelBridge.java'
+java_dst = ROOT / 'java/com/oculus/xrpassthroughocclusion/QuestBrowserPanelBridge.java'
+java_dst.parent.mkdir(parents=True, exist_ok=True)
+shutil.copy2(java_src, java_dst)
+
+manifest_path = ANDROID / 'AndroidManifest.xml'
+manifest = manifest_path.read_text()
+if 'android.permission.INTERNET' not in manifest:
+    anchor = '<uses-permission android:name="com.oculus.permission.USE_SCENE" />'
+    if anchor not in manifest:
+        raise SystemExit('BrowserPanel INTERNET manifest anchor not found')
+    manifest = manifest.replace(
+        anchor,
+        '<uses-permission android:name="android.permission.INTERNET" />\n  ' + anchor,
+        1,
+    )
+manifest_path.write_text(manifest)
+
+# ---------------------------------------------------------------------------
+# Native lifecycle hooks. The Viewer keeps ownership of the renderer, depth,
+# input tracking and projection layer. The browser only supplies a live OES
+# texture and receives mapped pointer events.
+# ---------------------------------------------------------------------------
+main_path = SRC / 'XrPassthroughOcclusion.cpp'
+main = main_path.read_text()
+
+bridge_anchor = '''#include "XrPassthroughOcclusionGl.h"\n'''
+bridge_decl = '''#include "XrPassthroughOcclusionGl.h"\n\n#if defined(ANDROID)\nextern "C" bool QuestBrowserPanelInitialize(JNIEnv* env, jobject activity);\nextern "C" void QuestBrowserPanelUpdate(JNIEnv* env);\nextern "C" void QuestBrowserPanelDestroy(JNIEnv* env);\n#endif\n'''
+if 'QuestBrowserPanelInitialize' not in main:
+    if bridge_anchor not in main:
+        raise SystemExit('BrowserPanel main include anchor not found')
+    main = main.replace(bridge_anchor, bridge_decl, 1)
+
+create_anchor = '''    app.appRenderer.Create(\n        format, width, height, kNumMultiSamples, app.SwapchainLength, colorTextures.data());\n'''
+if 'QuestBrowserPanelInitialize(Env' not in main:
+    if create_anchor not in main:
+        raise SystemExit('BrowserPanel renderer create anchor not found')
+    main = main.replace(
+        create_anchor,
+        create_anchor + '''\n#if defined(XR_USE_PLATFORM_ANDROID)\n    if (!QuestBrowserPanelInitialize(Env, androidApp->activity->clazz)) {\n        ALOGE("QuestBrowserPanel v0.1 failed to initialize WebView surface");\n    } else {\n        ALOGV("QuestBrowserPanel v0.1 WebView surface initialized");\n    }\n#endif\n''',
+        1,
+    )
+
+render_anchor = '''        app.appRenderer.RenderFrame(frameIn);\n'''
+if 'QuestBrowserPanelUpdate(Env);' not in main:
+    if render_anchor not in main:
+        raise SystemExit('BrowserPanel render update anchor not found')
+    main = main.replace(
+        render_anchor,
+        '''#if defined(XR_USE_PLATFORM_ANDROID)\n        QuestBrowserPanelUpdate(Env);\n#endif\n\n''' + render_anchor,
+        1,
+    )
+
+cleanup_anchor = '''    app.appRenderer.Destroy();\n'''
+if 'QuestBrowserPanelDestroy(Env);' not in main:
+    if cleanup_anchor not in main:
+        raise SystemExit('BrowserPanel cleanup anchor not found')
+    main = main.replace(
+        cleanup_anchor,
+        '''#if defined(XR_USE_PLATFORM_ANDROID)\n    QuestBrowserPanelDestroy(Env);\n#endif\n\n''' + cleanup_anchor,
+        1,
+    )
+main_path.write_text(main)
+
+# ---------------------------------------------------------------------------
+# Viewer renderer integration.
+# ---------------------------------------------------------------------------
+cpp_path = SRC / 'XrPassthroughOcclusionGl.cpp'
+text = cpp_path.read_text()
+
+# Browser state/helpers live inside the existing anonymous namespace so the
+# panel uses the Viewer geometry/input conventions. Public C wrappers are
+# inserted immediately after that namespace closes.
+namespace_anchor = '''\n} // namespace\n\nvoid Geometry::CreateBox() {'''
+if 'struct QuestBrowserPanelState' not in text:
+    if namespace_anchor not in text:
+        raise SystemExit('BrowserPanel namespace anchor not found')
+    browser_helpers = r'''
+
+#if defined(ANDROID)
+struct QuestBrowserPanelState {
+    static constexpr int kTextureWidth = 2560;
+    static constexpr int kTextureHeight = 1600;
+    static constexpr int kDensityDpi = 320;
+    static constexpr float kWidthMeters = 1.05f;
+    static constexpr float kHeightMeters = 0.65625f;
+
+    bool initialized = false;
+    bool placed = false;
+    bool grabbed = false;
+    int grabHand = -1;
+    Matrix4f pose;
+    Matrix4f grabOffset;
+
+    JavaVM* vm = nullptr;
+    jclass bridgeClass = nullptr;
+    jobject surfaceTexture = nullptr;
+    jfloatArray transformArray = nullptr;
+    jmethodID updateTexImage = nullptr;
+    jmethodID getTransformMatrix = nullptr;
+    jmethodID releaseSurfaceTexture = nullptr;
+    jmethodID bridgePointer = nullptr;
+    jmethodID bridgeClick = nullptr;
+    jmethodID bridgeStop = nullptr;
+
+    GLuint texture = 0;
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    GLuint ibo = 0;
+    GLsizei indexCount = 0;
+    float textureTransform[16] = {
+        1,0,0,0,
+        0,1,0,0,
+        0,0,1,0,
+        0,0,0,1};
+};
+
+QuestBrowserPanelState gQuestBrowserPanel;
+
+jclass QuestBrowserLoadBridgeClass(JNIEnv* env, jobject activity) {
+    jclass activityClass = env->GetObjectClass(activity);
+    if (activityClass == nullptr) {
+        return nullptr;
+    }
+    jmethodID getClassLoader = env->GetMethodID(
+        activityClass, "getClassLoader", "()Ljava/lang/ClassLoader;");
+    jobject classLoader = getClassLoader != nullptr
+        ? env->CallObjectMethod(activity, getClassLoader)
+        : nullptr;
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+    jclass loaderClass = classLoader != nullptr ? env->GetObjectClass(classLoader) : nullptr;
+    jmethodID loadClass = loaderClass != nullptr
+        ? env->GetMethodID(
+            loaderClass,
+            "loadClass",
+            "(Ljava/lang/String;)Ljava/lang/Class;")
+        : nullptr;
+    jstring className = env->NewStringUTF(
+        "com.oculus.xrpassthroughocclusion.QuestBrowserPanelBridge");
+    jobject loaded = (classLoader != nullptr && loadClass != nullptr)
+        ? env->CallObjectMethod(classLoader, loadClass, className)
+        : nullptr;
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        loaded = nullptr;
+    }
+    if (className != nullptr) env->DeleteLocalRef(className);
+    if (loaderClass != nullptr) env->DeleteLocalRef(loaderClass);
+    if (classLoader != nullptr) env->DeleteLocalRef(classLoader);
+    env->DeleteLocalRef(activityClass);
+    return reinterpret_cast<jclass>(loaded);
+}
+
+void QuestBrowserCreateMesh() {
+    if (gQuestBrowserPanel.vao != 0) {
+        return;
+    }
+    QuestMrImportedVertex vertices[4]{};
+    const float positions[4][3] = {
+        {-1.0f, -1.0f, 0.0f},
+        { 1.0f, -1.0f, 0.0f},
+        {-1.0f,  1.0f, 0.0f},
+        { 1.0f,  1.0f, 0.0f}};
+    const float uvs[4][2] = {
+        {0.0f, 0.0f},
+        {1.0f, 0.0f},
+        {0.0f, 1.0f},
+        {1.0f, 1.0f}};
+    for (int i = 0; i < 4; ++i) {
+        vertices[i].position[0] = positions[i][0];
+        vertices[i].position[1] = positions[i][1];
+        vertices[i].position[2] = positions[i][2];
+        vertices[i].normal[2] = 1.0f;

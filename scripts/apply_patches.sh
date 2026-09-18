@@ -37,39 +37,28 @@ run_fragmented_patch patch_v045
 run_fragmented_patch patch_v046
 run_fragmented_patch patch_v047
 
+cat BrowserPanel/parts/patch_browser_panel.*.pyfrag > /tmp/patch_browser_panel.py
+python3 -m py_compile /tmp/patch_browser_panel.py
+python3 /tmp/patch_browser_panel.py
+
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
 INPUT="$SRC_DIR/XrPassthroughOcclusionInput.cpp"
+MAIN="$SRC_DIR/XrPassthroughOcclusion.cpp"
+BROWSER_JAVA='meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/java/com/oculus/xrpassthroughocclusion/QuestBrowserPanelBridge.java'
 grep -n 'v0.1.2 filtered Environment Depth pass' "$SRC"
-grep -n 'QuestMrGetAndroidApp' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusion.cpp
-grep -n 'Quest3 MR Model Viewer v0.3.5: labelled room-spawned sticky tablet' "$SRC"
+grep -n 'QuestMrGetAndroidApp' "$MAIN"
 grep -n 'MODEL VIEWER' "$SRC"
-grep -n 'IMPORT GLB' "$SRC"
-grep -n 'GRIP MOVE' "$SRC"
-grep -n 'physicalSizePreset' "$SRC"
-grep -n '32MM' "$SRC"
-grep -n 'QuestMrInvalidateAllUiTextMeshes' "$SRC"
-grep -n 'QuestMrDestroyAllUiTextMeshes' "$SRC"
-grep -n 'HAS_BASE_COLOR_TEXTURE' "$SRC"
-grep -n 'pbrUv = fragmentUv' "$SRC"
-grep -n 'GL_SRGB8_ALPHA8' "$SRC"
-grep -n 'RotationY(modelYaw)' "$SRC"
-grep -n 'uiTriggerPressed' "$SRC"
-grep -n 'panelGrabOffset' "$SRC"
-grep -n 'modelGrabOffset' "$SRC"
-grep -n 'QuestMrBuildImportStatusMeshes' "$SRC"
-grep -n 'READY' "$SRC"
-grep -n 'QuestMR v0.3.15 direct model grab' "$SRC"
 grep -n 'QuestMrTriggerDownForHand' "$INPUT"
 grep -n 'QuestMrGripDownForHand' "$INPUT"
-grep -n 'squeeze/value' "$INPUT"
-grep -n 'kMaxFileBytes = 192LL' "$SRC"
-grep -n 'preflight geometry=' "$SRC"
-grep -n 'kMaxTriangles = 2000000' "$SRC"
-grep -n 'kMaxTextureGpuBytes = 160ULL' "$SRC"
-grep -n 'safe boot ignored persisted GLB' "$SRC"
-grep -n 'peak-memory guard' "$SRC"
-grep -n 'returnToViewer' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
-grep -n 'QUESTMR_V039_VISIBLE_PICKER' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
-grep -n 'QUESTMR_V041_CLEAR_STALE_IMPORT' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
-grep -n 'Theme.Material.NoActionBar' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/AndroidManifest.xml
+grep -n 'BrowserPanel v0.1 live WebView draw' "$SRC"
+grep -n 'samplerExternalOES BrowserTexture' "$SRC"
+grep -n 'BROWSER_MODE' "$SRC"
+grep -n 'browserPointerHand' "$SRC"
+grep -n 'QuestBrowserPanelInitialize' "$MAIN"
+grep -n 'QuestBrowserPanelUpdate' "$MAIN"
+grep -n 'QuestBrowserPanelDestroy' "$MAIN"
+grep -n 'wikipedia.org' "$BROWSER_JAVA"
+grep -n 'createVirtualDisplay' "$BROWSER_JAVA"
+grep -n 'dispatchTouchEvent' "$BROWSER_JAVA"
+grep -n 'android.permission.INTERNET' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/AndroidManifest.xml

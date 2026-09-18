@@ -1,12 +1,13 @@
-name: Build Quest APK
+name: Build Quest Browser Panel APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ browser-panel-experiment ]
     paths:
       - '.github/workflows/build-quest-apk.yml'
       - 'scripts/**'
+      - 'BrowserPanel/**'
       - 'PROJECT_STATE.md'
       - 'AUDIT.md'
       - 'HANDOFF.md'
@@ -17,20 +18,20 @@ permissions:
   contents: read
 
 concurrency:
-  group: quest-apk-${{ github.ref }}
+  group: quest-browser-panel-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '1.0.1'
-  APP_ID: 'com.bvultrex.quest3mrmodelviewer'
-  APP_LABEL: 'Quest3 MR Model Viewer'
+  APP_VERSION: '1.1.0-browserpanel-v0.1'
+  APP_ID: 'com.bvultrex.quest3mrbrowserpanel'
+  APP_LABEL: 'Quest3 MR Browser Panel'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout project
+      - name: Checkout experiment branch
         uses: actions/checkout@v7
 
       - name: Set up Java 17
@@ -49,7 +50,7 @@ jobs:
         run: bash scripts/install_android.sh
 
       - name: Checkout Meta OpenXR SDK v85
-        uses: actions/checkout@v7
+        uses: actions/checkout v6
         with:
           repository: meta-quest/Meta-OpenXR-SDK
           ref: v85
@@ -75,7 +76,7 @@ jobs:
       - name: Brand Android app
         run: bash scripts/brand_android.sh
 
-      - name: Apply viewer patches
+      - name: Apply Viewer + BrowserPanel patches
         run: bash scripts/apply_patches.sh
 
       - name: Build debug APK
@@ -87,9 +88,15 @@ jobs:
       - name: Collect and verify APK
         run: bash scripts/verify_apk.sh
 
+      - name: Add BrowserPanel debug sources to artifact
+        run: |
+          cp BrowserPanel/CONTROLS.txt dist/BROWSER-PANEL-CONTROLS.txt
+          cp BrowserPanel/README.md dist/BROWSER-PANEL-README.md
+          cp meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/java/com/oculus/xrpassthroughocclusion/QuestBrowserPanelBridge.java dist/QuestBrowserPanelBridge.patched.java
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v6
         with:
-          name: Quest3-MR-ModelViewer-v${{ env.APP_VERSION }}
+          name: Quest3-MR-BrowserPanel-v0.1
           path: dist/
           if-no-files-found: error

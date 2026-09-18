@@ -1,0 +1,160 @@
+            (browserHeadPose.M[1][3] + browserRightEyePose.M[1][3]) * 0.5f;
+        browserHeadPose.M[2][3] =
+            (browserHeadPose.M[2][3] + browserRightEyePose.M[2][3]) * 0.5f;
+        gQuestBrowserPanel.pose =
+            browserHeadPose * Matrix4f::Translation(0.0f, 0.02f, -0.82f);
+        gQuestBrowserPanel.placed = true;
+    }
+
+    if (gQuestBrowserPanel.initialized && gQuestBrowserPanel.placed &&
+        !gQuestBrowserPanel.grabbed && !panelGrabbed && !modelGrabbed) {
+        for (int hand = 0; hand < 2; ++hand) {
+            if (!handActive[hand] || !gripPressed[hand]) {
+                continue;
+            }
+            const Matrix4f grabTip =
+                handPose[hand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+            const float dx = grabTip.M[0][3] - gQuestBrowserPanel.pose.M[0][3];
+            const float dy = grabTip.M[1][3] - gQuestBrowserPanel.pose.M[1][3];
+            const float dz = grabTip.M[2][3] - gQuestBrowserPanel.pose.M[2][3];
+            const float localX =
+                gQuestBrowserPanel.pose.M[0][0] * dx +
+                gQuestBrowserPanel.pose.M[1][0] * dy +
+                gQuestBrowserPanel.pose.M[2][0] * dz;
+            const float localY =
+                gQuestBrowserPanel.pose.M[0][1] * dx +
+                gQuestBrowserPanel.pose.M[1][1] * dy +
+                gQuestBrowserPanel.pose.M[2][1] * dz;
+            const float localZ =
+                gQuestBrowserPanel.pose.M[0][2] * dx +
+                gQuestBrowserPanel.pose.M[1][2] * dy +
+                gQuestBrowserPanel.pose.M[2][2] * dz;
+            if (std::abs(localX) <= QuestBrowserPanelState::kWidthMeters * 0.55f &&
+                std::abs(localY) <= QuestBrowserPanelState::kHeightMeters * 0.58f &&
+                std::abs(localZ) <= 0.14f) {
+                gQuestBrowserPanel.grabbed = true;
+                gQuestBrowserPanel.grabHand = hand;
+                gQuestBrowserPanel.grabOffset =
+                    handPose[hand].Inverted() * gQuestBrowserPanel.pose;
+                break;
+            }
+        }
+    }
+
+    if (gQuestBrowserPanel.grabbed) {
+        const int hand = gQuestBrowserPanel.grabHand;
+        if (hand >= 0 && hand < 2 && handActive[hand] && gripDown[hand] &&
+            !(panelGrabbed && panelGrabHand == hand) &&
+            !(modelGrabbed && modelGrabHand == hand)) {
+            gQuestBrowserPanel.pose = handPose[hand] * gQuestBrowserPanel.grabOffset;
+        } else {
+            gQuestBrowserPanel.grabbed = false;
+            gQuestBrowserPanel.grabHand = -1;
+        }
+    }
+
+    int browserPointerHand = -1;
+    float browserPointerU = 0.0f;
+    float browserPointerV = 0.0f;
+    float browserPointerT = 1000.0f;
+    float browserHitWorld[3] = {0.0f, 0.0f, 0.0f};
+    if (gQuestBrowserPanel.initialized && gQuestBrowserPanel.placed) {
+        const float panelNormal[3] = {
+            gQuestBrowserPanel.pose.M[0][2],
+            gQuestBrowserPanel.pose.M[1][2],
+            gQuestBrowserPanel.pose.M[2][2]};
+        for (int hand = 0; hand < 2; ++hand) {
+            if (!handActive[hand] ||
+                (gQuestBrowserPanel.grabbed && gQuestBrowserPanel.grabHand == hand) ||
+                (panelGrabbed && panelGrabHand == hand) ||
+                (modelGrabbed && modelGrabHand == hand)) {
+                continue;
+            }
+            const float origin[3] = {
+                handPose[hand].M[0][3],
+                handPose[hand].M[1][3],
+                handPose[hand].M[2][3]};
+            const float direction[3] = {
+                -handPose[hand].M[0][2],
+                -handPose[hand].M[1][2],
+                -handPose[hand].M[2][2]};
+            const float denom =
+                direction[0] * panelNormal[0] +
+                direction[1] * panelNormal[1] +
+                direction[2] * panelNormal[2];
+            if (std::abs(denom) < 0.0001f) {
+                continue;
+            }
+            const float toPanel[3] = {
+                gQuestBrowserPanel.pose.M[0][3] - origin[0],
+                gQuestBrowserPanel.pose.M[1][3] - origin[1],
+                gQuestBrowserPanel.pose.M[2][3] - origin[2]};
+            const float t =
+                (toPanel[0] * panelNormal[0] +
+                 toPanel[1] * panelNormal[1] +
+                 toPanel[2] * panelNormal[2]) / denom;
+            if (t < 0.05f || t >= browserPointerT || t > 4.0f) {
+                continue;
+            }
+            const float hit[3] = {
+                origin[0] + direction[0] * t,
+                origin[1] + direction[1] * t,
+                origin[2] + direction[2] * t};
+            const float dx = hit[0] - gQuestBrowserPanel.pose.M[0][3];
+            const float dy = hit[1] - gQuestBrowserPanel.pose.M[1][3];
+            const float dz = hit[2] - gQuestBrowserPanel.pose.M[2][3];
+            const float localX =
+                gQuestBrowserPanel.pose.M[0][0] * dx +
+                gQuestBrowserPanel.pose.M[1][0] * dy +
+                gQuestBrowserPanel.pose.M[2][0] * dz;
+            const float localY =
+                gQuestBrowserPanel.pose.M[0][1] * dx +
+                gQuestBrowserPanel.pose.M[1][1] * dy +
+                gQuestBrowserPanel.pose.M[2][1] * dz;
+            if (std::abs(localX) <= QuestBrowserPanelState::kWidthMeters * 0.5f &&
+                std::abs(localY) <= QuestBrowserPanelState::kHeightMeters * 0.5f) {
+                browserPointerHand = hand;
+                browserPointerT = t;
+                browserPointerU =
+                    localX / QuestBrowserPanelState::kWidthMeters + 0.5f;
+                browserPointerV =
+                    0.5f - localY / QuestBrowserPanelState::kHeightMeters;
+                browserHitWorld[0] = hit[0];
+                browserHitWorld[1] = hit[1];
+                browserHitWorld[2] = hit[2];
+            }
+        }
+    }
+
+    if (browserPointerHand >= 0) {
+        QuestBrowserSendPointer(
+            browserPointerU,
+            browserPointerV,
+            AMOTION_EVENT_ACTION_HOVER_MOVE);
+        const bool browserTriggerDown =
+            QuestMrTriggerDownForHand(browserPointerHand);
+        const bool browserTriggerPressed =
+            browserTriggerDown && !uiTriggerPrev[browserPointerHand];
+        if (browserTriggerPressed) {
+            QuestBrowserClick(browserPointerU, browserPointerV);
+        }
+    }
+#endif
+'''
+    text = text.replace(hand_anchor, hand_anchor + interaction, 1)
+
+# Tablet pointer should not simultaneously claim the controller whose ray is
+# interacting with the BrowserPanel.
+tablet_loop = '''        if (!handActive[hand] ||\n            (panelGrabbed && hand == panelGrabHand) ||\n            (modelGrabbed && hand == modelGrabHand)) {'''
+tablet_loop_new = '''        if (!handActive[hand] ||\n#if defined(ANDROID)\n            hand == browserPointerHand ||\n#endif\n            (panelGrabbed && hand == panelGrabHand) ||\n            (modelGrabbed && hand == modelGrabHand)) {'''
+if tablet_loop not in text:
+    raise SystemExit('BrowserPanel tablet pointer exclusion anchor not found')
+text = text.replace(tablet_loop, tablet_loop_new, 1)
+
+# ---------------------------------------------------------------------------
+# Draw the browser in the same multiview projection pass and same Environment
+# Depth shader immediately after the imported GLB model.
+# ---------------------------------------------------------------------------
+draw_anchor = '''        GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));\n    }\n\n\n    if (panelInitialized) {'''
+if 'BrowserPanel v0.1 live WebView draw' not in text:
+    if draw_anchor not in text:

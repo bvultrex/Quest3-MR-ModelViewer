@@ -1,0 +1,100 @@
+        raise SystemExit('BrowserPanel draw insertion anchor not found')
+    browser_draw = r'''        GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+    }
+
+#if defined(ANDROID)
+    // BrowserPanel v0.1 live WebView draw. This deliberately reuses the exact
+    // Viewer Environment Depth visibility path above; BrowserMode only changes
+    // the material source to the SurfaceTexture OES image.
+    if (gQuestBrowserPanel.initialized && gQuestBrowserPanel.placed &&
+        gQuestBrowserPanel.texture != 0 && gQuestBrowserPanel.vao != 0) {
+        const Matrix4f browserModel = gQuestBrowserPanel.pose *
+            Matrix4f::Scaling(
+                QuestBrowserPanelState::kWidthMeters * 0.5f,
+                QuestBrowserPanelState::kHeightMeters * 0.5f,
+                1.0f);
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+            0.0f));
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::PBR_MODE),
+            0.0f));
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::BROWSER_MODE),
+            1.0f));
+        GL(glUniformMatrix4fv(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+            1,
+            GL_TRUE,
+            &browserModel.M[0][0]));
+
+        const GLint browserSampler = glGetUniformLocation(
+            scene.BoxDepthSpaceOcclusionProgram.GetProgramId(), "BrowserTexture");
+        const GLint browserTransform = glGetUniformLocation(
+            scene.BoxDepthSpaceOcclusionProgram.GetProgramId(), "BrowserTextureTransform");
+        GL(glActiveTexture(GL_TEXTURE4));
+        GL(glBindTexture(GL_TEXTURE_EXTERNAL_OES, gQuestBrowserPanel.texture));
+        if (browserSampler >= 0) {
+            GL(glUniform1i(browserSampler, 4));
+        }
+        if (browserTransform >= 0) {
+            GL(glUniformMatrix4fv(
+                browserTransform,
+                1,
+                GL_FALSE,
+                gQuestBrowserPanel.textureTransform));
+        }
+        GL(glBindVertexArray(gQuestBrowserPanel.vao));
+        GL(glDrawElements(
+            GL_TRIANGLES,
+            gQuestBrowserPanel.indexCount,
+            GL_UNSIGNED_INT,
+            nullptr));
+        GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+        GL(glBindTexture(GL_TEXTURE_EXTERNAL_OES, 0));
+        GL(glActiveTexture(GL_TEXTURE0));
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::BROWSER_MODE),
+            0.0f));
+
+        if (browserPointerHand >= 0) {
+            const Matrix4f pointerMarker =
+                Matrix4f::Translation(
+                    browserHitWorld[0] + gQuestBrowserPanel.pose.M[0][2] * 0.004f,
+                    browserHitWorld[1] + gQuestBrowserPanel.pose.M[1][2] * 0.004f,
+                    browserHitWorld[2] + gQuestBrowserPanel.pose.M[2][2] * 0.004f) *
+                Matrix4f::Scaling(0.006f, 0.006f, 0.0015f);
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                1.0f));
+            GL(glUniform3f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+                0.40f, 0.78f, 1.00f));
+            GL(glUniformMatrix4fv(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+                1,
+                GL_TRUE,
+                &pointerMarker.M[0][0]));
+            GL(glDrawElements(
+                GL_TRIANGLES,
+                scene.Box.GetIndexCount(),
+                GL_UNSIGNED_SHORT,
+                nullptr));
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                0.0f));
+        }
+    }
+#endif
+
+    if (panelInitialized) {'''
+    text = text.replace(draw_anchor, browser_draw, 1)
+
+cpp_path.write_text(text)
+
+print('BrowserPanel v0.1 patch applied')
+print('WebView -> VirtualDisplay -> SurfaceTexture -> GL_TEXTURE_EXTERNAL_OES: ON')
+print('Browser material uses Viewer depth shader path: ON')
+print('Browser grip move with either controller: ON')
+print('Controller ray -> Browser UV -> WebView click: ON')
+print('Resize / toolbar / tabs: intentionally NOT implemented')

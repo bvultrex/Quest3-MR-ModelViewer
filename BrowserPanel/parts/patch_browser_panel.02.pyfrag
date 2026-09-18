@@ -1,0 +1,135 @@
+    gQuestBrowserPanel.initialized = true;
+    gQuestBrowserPanel.placed = false;
+    ALOGV("QuestBrowserPanel v0.1 initialized at %dx%d", QuestBrowserPanelState::kTextureWidth, QuestBrowserPanelState::kTextureHeight);
+    return true;
+}
+
+extern "C" void QuestBrowserPanelUpdate(JNIEnv* env) {
+    if (!gQuestBrowserPanel.initialized || env == nullptr ||
+        gQuestBrowserPanel.surfaceTexture == nullptr) {
+        return;
+    }
+    env->CallVoidMethod(gQuestBrowserPanel.surfaceTexture, gQuestBrowserPanel.updateTexImage);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return;
+    }
+    env->CallVoidMethod(
+        gQuestBrowserPanel.surfaceTexture,
+        gQuestBrowserPanel.getTransformMatrix,
+        gQuestBrowserPanel.transformArray);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return;
+    }
+    env->GetFloatArrayRegion(
+        gQuestBrowserPanel.transformArray,
+        0,
+        16,
+        gQuestBrowserPanel.textureTransform);
+}
+
+extern "C" void QuestBrowserPanelDestroy(JNIEnv* env) {
+    if (env != nullptr && gQuestBrowserPanel.bridgeClass != nullptr &&
+        gQuestBrowserPanel.bridgeStop != nullptr) {
+        env->CallStaticVoidMethod(gQuestBrowserPanel.bridgeClass, gQuestBrowserPanel.bridgeStop);
+        if (env->ExceptionCheck()) env->ExceptionClear();
+    }
+    if (env != nullptr && gQuestBrowserPanel.surfaceTexture != nullptr &&
+        gQuestBrowserPanel.releaseSurfaceTexture != nullptr) {
+        env->CallVoidMethod(
+            gQuestBrowserPanel.surfaceTexture,
+            gQuestBrowserPanel.releaseSurfaceTexture);
+        if (env->ExceptionCheck()) env->ExceptionClear();
+    }
+    if (gQuestBrowserPanel.vao != 0) GL(glDeleteVertexArrays(1, &gQuestBrowserPanel.vao));
+    if (gQuestBrowserPanel.vbo != 0) GL(glDeleteBuffers(1, &gQuestBrowserPanel.vbo));
+    if (gQuestBrowserPanel.ibo != 0) GL(glDeleteBuffers(1, &gQuestBrowserPanel.ibo));
+    if (gQuestBrowserPanel.texture != 0) GL(glDeleteTextures(1, &gQuestBrowserPanel.texture));
+    if (env != nullptr && gQuestBrowserPanel.transformArray != nullptr) {
+        env->DeleteGlobalRef(gQuestBrowserPanel.transformArray);
+    }
+    if (env != nullptr && gQuestBrowserPanel.surfaceTexture != nullptr) {
+        env->DeleteGlobalRef(gQuestBrowserPanel.surfaceTexture);
+    }
+    if (env != nullptr && gQuestBrowserPanel.bridgeClass != nullptr) {
+        env->DeleteGlobalRef(gQuestBrowserPanel.bridgeClass);
+    }
+    gQuestBrowserPanel = QuestBrowserPanelState{};
+}
+#endif
+'''
+    text = text.replace(
+        namespace_anchor,
+        browser_helpers + '\n} // namespace\n' + public_wrappers + '''\nvoid Geometry::CreateBox() {''',
+        1,
+    )
+
+# ---------------------------------------------------------------------------
+# The BrowserPanel is rendered by the existing Viewer shader. BrowserMode only
+# swaps the material source to the live external OES texture; all Environment
+# Depth visibility logic stays exactly on the golden Viewer path.
+# ---------------------------------------------------------------------------
+old_enum = '''        UI_COLOR,\n        PBR_MODE,\n        CAMERA_WORLD_POSITION,'''
+new_enum = '''        UI_COLOR,\n        PBR_MODE,\n        BROWSER_MODE,\n        CAMERA_WORLD_POSITION,'''
+if old_enum not in text:
+    raise SystemExit('BrowserPanel uniform enum anchor not found')
+text = text.replace(old_enum, new_enum, 1)
+
+old_uniform = '''    {Uniform::Index::PBR_MODE, Uniform::Type::UNIFORM, "PbrMode"},\n    {Uniform::Index::CAMERA_WORLD_POSITION, Uniform::Type::UNIFORM, "CameraWorldPosition"},'''
+new_uniform = '''    {Uniform::Index::PBR_MODE, Uniform::Type::UNIFORM, "PbrMode"},\n    {Uniform::Index::BROWSER_MODE, Uniform::Type::UNIFORM, "BrowserMode"},\n    {Uniform::Index::CAMERA_WORLD_POSITION, Uniform::Type::UNIFORM, "CameraWorldPosition"},'''
+if old_uniform not in text:
+    raise SystemExit('BrowserPanel uniform table anchor not found')
+text = text.replace(old_uniform, new_uniform, 1)
+
+old_extensions = '''  #extension GL_OVR_multiview2 : require\n  #extension GL_ARB_shading_language_420pack : enable\n'''
+new_extensions = '''  #extension GL_OVR_multiview2 : require\n  #extension GL_ARB_shading_language_420pack : enable\n  #extension GL_OES_EGL_image_external_essl3 : require\n'''
+if old_extensions not in text:
+    raise SystemExit('BrowserPanel fragment extension anchor not found')
+text = text.replace(old_extensions, new_extensions, 1)
+
+old_shader_uniforms = '''  uniform highp float PbrMode;\n  uniform highp vec3 CameraWorldPosition;'''
+new_shader_uniforms = '''  uniform highp float PbrMode;\n  uniform highp float BrowserMode;\n  uniform highp mat4 BrowserTextureTransform;\n  uniform samplerExternalOES BrowserTexture;\n  uniform highp vec3 CameraWorldPosition;'''
+if old_shader_uniforms not in text:
+    raise SystemExit('BrowserPanel shader uniform anchor not found')
+text = text.replace(old_shader_uniforms, new_shader_uniforms, 1)
+
+old_material = '''high vec4 materialColor = fragmentColor;\nif (PbrMode > 0.5f && HasBaseColorTexture > 0.5f) {\n    materialColor *= texture(Texture1, pbrUv);\n}\n'''
+new_material = '''high vec4 materialColor = fragmentColor;\nif (BrowserMode > 0.5f) {\n    highp vec4 browserUv = BrowserTextureTransform * vec4(fragmentUv, 0.0f, 1.0f);\n    materialColor = texture(BrowserTexture, browserUv.xy);\n} else if (PbrMode > 0.5f && HasBaseColorTexture > 0.5f) {\n    materialColor *= texture(Texture1, pbrUv);\n}\n'''
+if old_material not in text:
+    raise SystemExit('BrowserPanel material anchor not found')
+text = text.replace(old_material, new_material, 1)
+
+old_lighting = '''highp vec3 litColor;\nif (PbrMode > 0.5f) {'''
+new_lighting = ''\high vec3 litColor;\nif (BrowserMode > 0.5f) {\n    litColor = materialColor.rgb;\n} else if (PbrMode > 0.5f) {'''
+if old_lighting not in text:
+    raise SystemExit('BrowserPanel lighting anchor not found')
+text = text.replace(old_lighting, new_lighting, 1)
+
+# BrowserMode is explicitly reset every frame alongside UI/PBR state.
+state_anchor = '''    GL(glUniform1f(\n        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::PBR_MODE),\n        0.0f));\n'''
+if 'Uniform::Index::BROWSER_MODE' not in text[text.find('void AppRenderer::RenderScene'):text.find('void AppRenderer::RenderScene') + 8000]:
+    if state_anchor not in text:
+        raise SystemExit('BrowserPanel default render state anchor not found')
+    text = text.replace(
+        state_anchor,
+        state_anchor + '''    GL(glUniform1f(\n        scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::BROWSER_MODE),\n        0.0f));\n''',
+        1,
+    )
+
+# ---------------------------------------------------------------------------
+# Browser spatial pose, grab and controller-ray hit -> WebView UV mapping.
+# ---------------------------------------------------------------------------
+hand_anchor = '''    const bool gripPressed[2] = {\n        gripDown[0] && !gripPrev[0],\n        gripDown[1] && !gripPrev[1]};\n'''
+if 'browserPointerHand' not in text:
+    if hand_anchor not in text:
+        raise SystemExit('BrowserPanel hand state anchor not found')
+    interaction = r'''
+
+#if defined(ANDROID)
+    if (gQuestBrowserPanel.initialized && !gQuestBrowserPanel.placed) {
+        Matrix4f browserHeadPose = frameIn.View[0].Inverted();
+        const Matrix4f browserRightEyePose = frameIn.View[1].Inverted();
+        browserHeadPose.M[0][3] =
+            (browserHeadPose.M[0][3] + browserRightEyePose.M[0][3]) * 0.5f;
+        browserHeadPose.M[1][3] =
