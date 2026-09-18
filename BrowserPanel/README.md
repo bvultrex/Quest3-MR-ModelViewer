@@ -67,3 +67,22 @@ v0.2.2:
 - URL EditText requests URI keyboard semantics and IME GO
 - after browser clicks, editable HTML input/textarea/contentEditable focus is detected and the WebView requests the system keyboard
 - the custom QWERTZ panel remains compiled only as fallback code but is kept hidden
+
+
+## v0.2.3 Activity IME proxy
+
+Hardware feedback from v0.2.2:
+- the system keyboard still did not appear
+- the custom keyboard was hidden as intended, leaving no keyboard at all
+
+Root cause hypothesis:
+- the editable URL/WebView controls live on the offscreen VirtualDisplay Presentation
+- Horizon's system IME overlay expects a real input connection attached to the primary immersive Activity window
+
+v0.2.3:
+- creates a hidden 2x2 EditText on the real Activity window as an IME proxy
+- URL bar clicks mirror text/selection into that proxy and request the Quest system keyboard
+- focused HTML input/textarea/contentEditable fields are detected and mirrored through the same proxy
+- edits are mirrored back into the URL bar or active web element
+- number, tel, email, URL and password HTML input types are mapped to appropriate Android input types
+- the offscreen Presentation EditText no longer owns the system IME

@@ -53,6 +53,10 @@ cat BrowserPanel/v022/parts/patch_browser_panel_v022.*.pyfrag > /tmp/patch_brows
 python3 -m py_compile /tmp/patch_browser_panel_v022.py
 python3 /tmp/patch_browser_panel_v022.py
 
+cat BrowserPanel/v023/parts/patch_browser_panel_v023.*.pyfrag > /tmp/patch_browser_panel_v023.py
+python3 -m py_compile /tmp/patch_browser_panel_v023.py
+python3 /tmp/patch_browser_panel_v023.py
+
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
 INPUT="$SRC_DIR/XrPassthroughOcclusionInput.cpp"
@@ -90,3 +94,8 @@ grep -n 'oculus.software.overlay_keyboard' meta-openxr-sdk/Samples/XrSamples/XrP
 grep -n 'requestSystemKeyboard' "$BROWSER_JAVA"
 grep -n 'TYPE_TEXT_VARIATION_URI' "$BROWSER_JAVA"
 grep -n 'evaluateJavascript' "$BROWSER_JAVA"
+
+grep -n 'primary-Activity hidden IME proxy' /tmp/patch_browser_panel_v023.py
+grep -n 'installImeProxy' "$BROWSER_JAVA"
+grep -n 'imeProxy' "$BROWSER_JAVA"
+grep -n 'beginWebInput' "$BROWSER_JAVA"

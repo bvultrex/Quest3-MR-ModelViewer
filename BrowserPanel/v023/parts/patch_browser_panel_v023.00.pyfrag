@@ -1,0 +1,401 @@
+from pathlib import Path
+
+ROOT = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion')
+JAVA = ROOT / 'java/com/oculus/xrpassthroughocclusion/QuestBrowserPanelBridge.java'
+
+j = JAVA.read_text()
+
+def rep(old, new, label):
+    global j
+    if old not in j:
+        raise SystemExit(f'BrowserPanel v0.2.3 missing Java anchor: {label}')
+    j = j.replace(old, new, 1)
+
+rep(
+'''import android.graphics.SurfaceTexture;
+''',
+'''import android.graphics.SurfaceTexture;
+import android.text.Editable;
+import android.text.TextWatcher;
+''',
+'text watcher imports')
+
+rep(
+'''    private static WebView webView;
+    private static EditText addressBar;
+    private static LinearLayout urlKeyboard;
+    private static int surfaceWidth;
+''',
+'''    private static WebView webView;
+    private static EditText addressBar;
+    private static LinearLayout urlKeyboard;
+    private static Activity hostActivity;
+    private static EditText imeProxy;
+    private static boolean syncingImeProxy;
+    private static int imeProxyMode;
+    private static final int IME_NONE = 0;
+    private static final int IME_URL = 1;
+    private static final int IME_WEB = 2;
+    private static int surfaceWidth;
+''',
+'IME proxy fields')
+
+rep(
+'''            stopInternal();
+            try {
+                surfaceWidth = width;
+''',
+'''            stopInternal();
+            try {
+                hostActivity = activity;
+                installImeProxy(activity);
+                surfaceWidth = width;
+''',
+'install activity IME proxy')
+
+old_methods = '''    private static void requestSystemKeyboard(final View target) {
+        if (target == null) return;
+        try {
+            target.setFocusable(true);
+            target.setFocusableInTouchMode(true);
+            target.requestFocus();
+            if (presentation != null && presentation.getWindow() != null) {
+                presentation.getWindow().setSoftInputMode(
+                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING |
+                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+            }
+            InputMethodManager imm = (InputMethodManager)
+                    target.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.restartInput(target);
+                imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static void maybeShowKeyboard() {
+        if (addressBar != null && addressBar.hasFocus()) {
+            requestSystemKeyboard(addressBar);
+            return;
+        }
+        if (webView == null) return;
+        try {
+            webView.evaluateJavascript(
+                    "(function(){var e=document.activeElement;if(!e)return false;" +
+                    "var t=(e.tagName||'').toLowerCase();" +
+                    "var ty=(e.type||'text').toLowerCase();" +
+                    "return t==='textarea'||e.isContentEditable||(t==='input'&&" +
+                    "ty!=='button'&&ty!=='submit'&&ty!=='checkbox'&&ty!=='radio'&&" +
+                    "ty!=='range'&&ty!=='color'&&ty!=='file');})()",
+                    value -> {
+                        if ("true".equals(value)) requestSystemKeyboard(webView);
+                    });
+        } catch (Throwable ignored) {}
+    }
+'''
+
+new_methods = r'''    private static void installImeProxy(final Activity activity) {
+        if (activity == null || imeProxy != null) return;
+        try {
+            imeProxy = new EditText(activity);
+            imeProxy.setSingleLine(true);
+            imeProxy.setTextColor(Color.TRANSPARENT);
+            imeProxy.setHintTextColor(Color.TRANSPARENT);
+            imeProxy.setBackgroundColor(Color.TRANSPARENT);
+            imeProxy.setCursorVisible(false);
+            imeProxy.setAlpha(0.01f);
+            imeProxy.setPadding(0, 0, 0, 0);
+            imeProxy.setFocusable(true);
+            imeProxy.setFocusableInTouchMode(true);
+            imeProxy.setInputType(
+                    android.text.InputType.TYPE_CLASS_TEXT |
+                    android.text.InputType.TYPE_TEXT_VARIATION_URI);
+            imeProxy.setImeOptions(
+                    android.view.inputmethod.EditorInfo.IME_ACTION_GO |
+                    android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+
+            imeProxy.addTextChangedListener(new TextWatcher() {
+                @Override
+                public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+                @Override
+                public void onTextChanged(CharSequence s, int start, int before, int count) {}
+
+                @Override
+                public void afterTextChanged(Editable editable) {
+                    if (syncingImeProxy) return;
+                    if (imeProxyMode == IME_URL) {
+                        if (addressBar != null) {
+                            addressBar.setText(editable.toString());
+                            int pos = Math.max(0, Math.min(editable.length(), imeProxy.getSelectionStart()));
+                            try {
+                                addressBar.setSelection(Math.min(pos, addressBar.length()));
+                            } catch (Throwable ignored) {}
+                        }
+                    } else if (imeProxyMode == IME_WEB) {
+                        syncProxyTextToWeb();
+                    }
+                }
+            });
+
+            imeProxy.setOnEditorActionListener((v, actionId, event) -> {
+                if (imeProxyMode == IME_URL) {
+                    if (addressBar != null) addressBar.setText(imeProxy.getText().toString());
+                    navigate();
+                    hideSystemKeyboard();
+                    return true;
+                }
+                if (imeProxyMode == IME_WEB) {
+                    submitActiveWebField();
+                    hideSystemKeyboard();
+                    return true;
+                }
+                return false;
+            });
+
+            FrameLayout.LayoutParams proxyParams = new FrameLayout.LayoutParams(2, 2);
+            proxyParams.gravity = Gravity.TOP | Gravity.LEFT;
+            proxyParams.leftMargin = 0;
+            proxyParams.topMargin = 0;
+            activity.addContentView(imeProxy, proxyParams);
+        } catch (Throwable ignored) {
+            imeProxy = null;
+        }
+    }
+
+    private static void hideSystemKeyboard() {
+        try {
+            if (imeProxy != null) {
+                InputMethodManager imm = (InputMethodManager)
+                        imeProxy.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+                if (imm != null) {
+                    imm.hideSoftInputFromWindow(imeProxy.getWindowToken(), 0);
+                }
+                imeProxy.clearFocus();
+            }
+        } catch (Throwable ignored) {}
+        imeProxyMode = IME_NONE;
+    }
+
+    private static int inputTypeForHtml(String type, boolean multiline) {
+        if (multiline) {
+            return android.text.InputType.TYPE_CLASS_TEXT |
+                    android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE |
+                    android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES;
+        }
+        if ("number".equals(type)) {
+            return android.text.InputType.TYPE_CLASS_NUMBER |
+                    android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL |
+                    android.text.InputType.TYPE_NUMBER_FLAG_SIGNED;
+        }
+        if ("tel".equals(type)) {
+            return android.text.InputType.TYPE_CLASS_PHONE;
+        }
+        if ("email".equals(type)) {
+            return android.text.InputType.TYPE_CLASS_TEXT |
+                    android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS;
+        }
+        if ("url".equals(type)) {
+            return android.text.InputType.TYPE_CLASS_TEXT |
+                    android.text.InputType.TYPE_TEXT_VARIATION_URI;
+        }
+        if ("password".equals(type)) {
+            return android.text.InputType.TYPE_CLASS_TEXT |
+                    android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD;
+        }
+        return android.text.InputType.TYPE_CLASS_TEXT |
+                android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES;
+    }
+
+    private static void openImeProxy(
+            int mode,
+            String value,
+            int selectionStart,
+            int selectionEnd,
+            int inputType,
+            boolean multiline) {
+        if (imeProxy == null || hostActivity == null) return;
+        try {
+            imeProxyMode = mode;
+            syncingImeProxy = true;
+            imeProxy.setSingleLine(!multiline);
+            imeProxy.setInputType(inputType);
+            imeProxy.setImeOptions(
+                    (multiline
+                        ? android.view.inputmethod.EditorInfo.IME_ACTION_NONE
+                        : android.view.inputmethod.EditorInfo.IME_ACTION_GO) |
+                    android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+            imeProxy.setText(value == null ? "" : value);
+            int length = imeProxy.length();
+            int a = Math.max(0, Math.min(length, selectionStart));
+            int b = Math.max(0, Math.min(length, selectionEnd));
+            imeProxy.setSelection(a, b);
+            syncingImeProxy = false;
+
+            imeProxy.setVisibility(View.VISIBLE);
+            imeProxy.requestFocus();
+
+            Window window = hostActivity.getWindow();
+            if (window != null) {
+                window.setSoftInputMode(
+                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING |
+                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+            }
+
+            InputMethodManager imm = (InputMethodManager)
+                    hostActivity.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.restartInput(imeProxy);
+                imm.showSoftInput(imeProxy, InputMethodManager.SHOW_IMPLICIT);
+                MAIN.postDelayed(() -> {
+                    try {
+                        if (imeProxy != null && imeProxy.hasFocus()) {
+                            imm.showSoftInput(imeProxy, InputMethodManager.SHOW_IMPLICIT);
+                        }
+                    } catch (Throwable ignored) {}
+                }, 120);
+            }
+        } catch (Throwable ignored) {
+            syncingImeProxy = false;
+        }
+    }
+
+    private static void beginUrlInput() {
+        if (addressBar == null) return;
+        String value = addressBar.getText().toString();
+        int a = Math.max(0, addressBar.getSelectionStart());
+        int b = Math.max(0, addressBar.getSelectionEnd());
+        openImeProxy(
+                IME_URL,
+                value,
+                a,
+                b,
+                android.text.InputType.TYPE_CLASS_TEXT |
+                    android.text.InputType.TYPE_TEXT_VARIATION_URI,
+                false);
+    }
+
+    private static void beginWebInput() {
+        if (webView == null) return;
+        try {
+            webView.evaluateJavascript(
+                    "(function(){var e=document.activeElement;if(!e)return null;" +
+                    "var t=(e.tagName||'').toLowerCase();" +
+                    "var ty=(e.type||'text').toLowerCase();" +
+                    "var ok=t==='textarea'||e.isContentEditable||(t==='input'&&" +
+                    "ty!=='button'&&ty!=='submit'&&ty!=='checkbox'&&ty!=='radio'&&" +
+                    "ty!=='range'&&ty!=='color'&&ty!=='file');" +
+                    "if(!ok)return null;" +
+                    "var v=('value' in e)?e.value:(e.innerText||'');" +
+                    "var s=(typeof e.selectionStart==='number')?e.selectionStart:v.length;" +
+                    "var n=(typeof e.selectionEnd==='number')?e.selectionEnd:s;" +
+                    "return JSON.stringify({v:v,s:s,e:n,t:ty,m:(t==='textarea'||e.isContentEditable)});})()",
+                    encoded -> {
+                        try {
+                            Object decoded = new org.json.JSONTokener(encoded).nextValue();
+                            if (!(decoded instanceof String)) return;
+                            org.json.JSONObject obj = new org.json.JSONObject((String) decoded);
+                            String value = obj.optString("v", "");
+                            int start = obj.optInt("s", value.length());
+                            int end = obj.optInt("e", start);
+                            String type = obj.optString("t", "text");
+                            boolean multiline = obj.optBoolean("m", false);
+                            openImeProxy(
+                                    IME_WEB,
+                                    value,
+                                    start,
+                                    end,
+                                    inputTypeForHtml(type, multiline),
+                                    multiline);
+                        } catch (Throwable ignored) {}
+                    });
+        } catch (Throwable ignored) {}
+    }
+
+    private static void maybeShowKeyboard() {
+        if (addressBar != null && addressBar.hasFocus()) {
+            beginUrlInput();
+        } else {
+            beginWebInput();
+        }
+    }
+
+    private static void syncProxyTextToWeb() {
+        if (webView == null || imeProxy == null || imeProxyMode != IME_WEB) return;
+        try {
+            String value = org.json.JSONObject.quote(imeProxy.getText().toString());
+            int start = Math.max(0, imeProxy.getSelectionStart());
+            int end = Math.max(0, imeProxy.getSelectionEnd());
+            String js =
+                    "(function(v,s,n){var e=document.activeElement;if(!e)return;" +
+                    "if('value' in e){e.value=v;if(e.setSelectionRange){" +
+                    "try{e.setSelectionRange(s,n);}catch(x){}}}" +
+                    "else if(e.isContentEditable){e.innerText=v;}" +
+                    "e.dispatchEvent(new Event('input',{bubbles:true}));" +
+                    "e.dispatchEvent(new Event('change',{bubbles:true}));})(" +
+                    value + "," + start + "," + end + ")";
+            webView.evaluateJavascript(js, null);
+        } catch (Throwable ignored) {}
+    }
+
+    private static void submitActiveWebField() {
+        if (webView == null) return;
+        try {
+            webView.evaluateJavascript(
+                    "(function(){var e=document.activeElement;if(!e)return;" +
+                    "e.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter'," +
+                    "keyCode:13,which:13,bubbles:true}));" +
+                    "if(e.form){if(e.form.requestSubmit)e.form.requestSubmit();else e.form.submit();}" +
+                    "e.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter'," +
+                    "keyCode:13,which:13,bubbles:true}));})()",
+                    null);
+        } catch (Throwable ignored) {}
+    }
+'''
+rep(old_methods, new_methods, 'activity-window IME proxy methods')
+
+rep(
+'''            addressBar.setSingleLine(true);
+            addressBar.setShowSoftInputOnFocus(true);
+            addressBar.setInputType(
+                    android.text.InputType.TYPE_CLASS_TEXT |
+                    android.text.InputType.TYPE_TEXT_VARIATION_URI);
+''',
+'''            addressBar.setSingleLine(true);
+            addressBar.setShowSoftInputOnFocus(false);
+            addressBar.setInputType(
+                    android.text.InputType.TYPE_CLASS_TEXT |
+                    android.text.InputType.TYPE_TEXT_VARIATION_URI);
+''',
+'offscreen URL field stops owning IME')
+
+rep(
+'''        webView = null;
+        addressBar = null;
+        urlKeyboard = null;
+        rootFrame = null;
+''',
+'''        webView = null;
+        addressBar = null;
+        urlKeyboard = null;
+        rootFrame = null;
+
+        try {
+            hideSystemKeyboard();
+            if (imeProxy != null && imeProxy.getParent() instanceof ViewGroup) {
+                ((ViewGroup) imeProxy.getParent()).removeView(imeProxy);
+            }
+        } catch (Throwable ignored) {}
+        imeProxy = null;
+        hostActivity = null;
+        syncingImeProxy = false;
+        imeProxyMode = IME_NONE;
+''',
+'IME proxy cleanup')
+
+JAVA.write_text(j)
+
+print('BrowserPanel v0.2.3 primary-Activity hidden IME proxy: ON')
+print('BrowserPanel v0.2.3 URL bar -> Quest overlay keyboard proxy: ON')
+print('BrowserPanel v0.2.3 focused HTML inputs -> Quest overlay keyboard proxy: ON')
+print('BrowserPanel v0.2.3 numeric/email/url/tel/password input type routing: ON')
