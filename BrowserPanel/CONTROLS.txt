@@ -1,0 +1,18 @@
+Quest3 MR Browser Panel experiment v0.1
+
+BROWSER PANEL
+- Wikipedia loads automatically.
+- Aim either controller at the panel.
+- Trigger: click the targeted WebView point.
+- Grip/Squeeze while the controller is close to the panel: grab it.
+- Hold Grip and move/rotate the controller: move/rotate the browser panel.
+- Release Grip: leave the panel in room space.
+
+This milestone intentionally has no resize handles, URL bar, tabs or keyboard UI yet.
+
+HARDWARE CHECK
+- full Wikipedia page visible, no right-edge crop
+- readable sharp text
+- link opens with trigger
+- panel can be grabbed
+- real furniture occludes the panel with the Viewer soft Environment Depth edge
