@@ -94,8 +94,8 @@ if old_shader_uniforms not in text:
     raise SystemExit('BrowserPanel shader uniform anchor not found')
 text = text.replace(old_shader_uniforms, new_shader_uniforms, 1)
 
-old_material = '''high vec4 materialColor = fragmentColor;\nif (PbrMode > 0.5f && HasBaseColorTexture > 0.5f) {\n    materialColor *= texture(Texture1, pbrUv);\n}\n'''
-new_material = '''high vec4 materialColor = fragmentColor;\nif (BrowserMode > 0.5f) {\n    highp vec4 browserUv = BrowserTextureTransform * vec4(fragmentUv, 0.0f, 1.0f);\n    materialColor = texture(BrowserTexture, browserUv.xy);\n} else if (PbrMode > 0.5f && HasBaseColorTexture > 0.5f) {\n    materialColor *= texture(Texture1, pbrUv);\n}\n'''
+old_material = '''highp vec4 materialColor = fragmentColor;\nif (PbrMode > 0.5f && HasBaseColorTexture > 0.5f) {\n    materialColor *= texture(Texture1, pbrUv);\n}\n'''
+new_material = '''highp vec4 materialColor = fragmentColor;\nif (BrowserMode > 0.5f) {\n    highp vec4 browserUv = BrowserTextureTransform * vec4(fragmentUv, 0.0f, 1.0f);\n    materialColor = texture(BrowserTexture, browserUv.xy);\n} else if (PbrMode > 0.5f && HasBaseColorTexture > 0.5f) {\n    materialColor *= texture(Texture1, pbrUv);\n}\n'''
 if old_material not in text:
     raise SystemExit('BrowserPanel material anchor not found')
 text = text.replace(old_material, new_material, 1)
