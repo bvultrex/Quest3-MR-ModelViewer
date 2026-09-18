@@ -25,3 +25,11 @@ v0.1 GOLDEN REGRESSION CHECK
 - link click works
 - grab/place works
 - Environment Depth remains identical to the Viewer path
+
+
+v0.2.1 HOTFIX
+- Resize zones are unchanged.
+- Hovering an outer resize corner shows a cyan L bracket outside the browser image.
+- Tapping the URL field opens the built-in QWERTZ URL keyboard inside the panel.
+- The custom keyboard does not depend on the Quest system keyboard.
+- GO navigates and hides the custom keyboard. HIDE closes it without navigating.

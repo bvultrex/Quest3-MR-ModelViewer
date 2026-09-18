@@ -38,3 +38,17 @@ Resize is intentionally proportional in v0.2. This preserves the known-good 1.6 
 6. URL field receives focus, keyboard can be opened, and GO / Enter navigates to the typed URL.
 
 Tabs, favorites, downloads and free-aspect resize remain out of scope.
+
+
+## v0.2.1 hotfix
+
+Hardware feedback from v0.2:
+- proportional resize itself works
+- outer resize hover indicator was not visible enough
+- Quest system keyboard did not appear for the offscreen VirtualDisplay EditText
+
+v0.2.1 changes:
+- keep the proven resize hit geometry unchanged
+- replace the tiny hover dot with a bright cyan L-shaped corner bracket outside the webpage
+- stop depending on the Quest/Android system IME for URL entry
+- add an in-panel QWERTZ URL keyboard with backspace, URL punctuation, GO and HIDE

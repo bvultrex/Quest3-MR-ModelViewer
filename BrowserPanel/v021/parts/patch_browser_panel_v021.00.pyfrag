@@ -1,0 +1,203 @@
+from pathlib import Path
+
+ROOT = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion')
+JAVA = ROOT / 'java/com/oculus/xrpassthroughocclusion/QuestBrowserPanelBridge.java'
+
+j = JAVA.read_text()
+
+def rep(old, new, label):
+    global j
+    if old not in j:
+        raise SystemExit(f'BrowserPanel v0.2.1 missing Java anchor: {label}')
+    j = j.replace(old, new, 1)
+
+rep(
+'''    private static WebView webView;
+    private static EditText addressBar;
+    private static int surfaceWidth;''',
+'''    private static WebView webView;
+    private static EditText addressBar;
+    private static LinearLayout urlKeyboard;
+    private static int surfaceWidth;''',
+'keyboard field')
+
+old_ime = '''    private static void maybeShowKeyboard() {
+        if (addressBar == null || !addressBar.hasFocus()) return;
+        try {
+            addressBar.setFocusable(true);
+            addressBar.setFocusableInTouchMode(true);
+            addressBar.requestFocus();
+            if (presentation != null && presentation.getWindow() != null) {
+                presentation.getWindow().setSoftInputMode(
+                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+            }
+            InputMethodManager imm = (InputMethodManager)
+                    addressBar.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.restartInput(addressBar);
+                imm.showSoftInput(addressBar, InputMethodManager.SHOW_IMPLICIT);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+'''
+new_ime = '''    private static void maybeShowKeyboard() {
+        if (addressBar == null || !addressBar.hasFocus()) return;
+        setUrlKeyboardVisible(true);
+    }
+
+    private static void setUrlKeyboardVisible(boolean visible) {
+        if (urlKeyboard != null) {
+            urlKeyboard.setVisibility(visible ? View.VISIBLE : View.GONE);
+            urlKeyboard.requestLayout();
+        }
+    }
+
+    private static void typeUrlKey(String key) {
+        if (addressBar == null) return;
+        addressBar.requestFocus();
+        android.text.Editable editable = addressBar.getText();
+        int a = Math.max(0, addressBar.getSelectionStart());
+        int b = Math.max(0, addressBar.getSelectionEnd());
+        int start = Math.min(a, b);
+        int end = Math.max(a, b);
+
+        if ("⌫".equals(key)) {
+            if (start != end) {
+                editable.delete(start, end);
+            } else if (start > 0) {
+                editable.delete(start - 1, start);
+            }
+            return;
+        }
+        if ("GO".equals(key)) {
+            navigate();
+            return;
+        }
+        if ("HIDE".equals(key)) {
+            setUrlKeyboardVisible(false);
+            return;
+        }
+
+        String value = "SPACE".equals(key) ? " " : key;
+        editable.replace(start, end, value);
+        int cursor = start + value.length();
+        addressBar.setSelection(Math.min(cursor, editable.length()));
+    }
+
+    private static Button urlKey(Context context, String label) {
+        Button button = toolbarButton(context, label);
+        button.setTextSize(label.length() > 4 ? 12f : 16f);
+        button.setOnClickListener(v -> typeUrlKey(label));
+        return button;
+    }
+
+    private static void addUrlKeyboardRow(
+            Context context,
+            LinearLayout keyboard,
+            String... labels) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        row.setPadding(dp(context, 4), dp(context, 2), dp(context, 4), dp(context, 2));
+        for (String label : labels) {
+            LinearLayout.LayoutParams params =
+                    new LinearLayout.LayoutParams(0, dp(context, 42), 1f);
+            params.setMargins(dp(context, 2), 0, dp(context, 2), 0);
+            row.addView(urlKey(context, label), params);
+        }
+        keyboard.addView(row, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(context, 46)));
+    }
+
+    private static LinearLayout createUrlKeyboard(Context context) {
+        LinearLayout keyboard = new LinearLayout(context);
+        keyboard.setOrientation(LinearLayout.VERTICAL);
+        keyboard.setBackgroundColor(Color.rgb(24, 27, 31));
+        keyboard.setPadding(dp(context, 6), dp(context, 4), dp(context, 6), dp(context, 5));
+
+        addUrlKeyboardRow(context, keyboard, "q","w","e","r","t","z","u","i","o","p");
+        addUrlKeyboardRow(context, keyboard, "a","s","d","f","g","h","j","k","l");
+        addUrlKeyboardRow(context, keyboard, "y","x","c","v","b","n","m","⌫");
+        addUrlKeyboardRow(context, keyboard, "www.","://",".","/","-","_","GO","HIDE");
+
+        keyboard.setVisibility(View.GONE);
+        return keyboard;
+    }
+
+'''
+rep(old_ime, new_ime, 'replace system IME with in-panel keyboard')
+
+rep(
+'''        webView.loadUrl(url);
+        webView.requestFocus();
+    }
+''',
+'''        webView.loadUrl(url);
+        setUrlKeyboardVisible(false);
+        webView.requestFocus();
+    }
+''',
+'hide keyboard after navigation')
+
+rep(
+'''            addressBar.setSingleLine(true);
+            addressBar.setSelectAllOnFocus(true);
+''',
+'''            addressBar.setSingleLine(true);
+            addressBar.setShowSoftInputOnFocus(false);
+            addressBar.setSelectAllOnFocus(true);
+''',
+'disable system IME')
+
+rep(
+'''            addressBar.setOnFocusChangeListener((v, hasFocus) -> {
+                if (hasFocus) MAIN.postDelayed(QuestBrowserPanelBridge::maybeShowKeyboard, 80);
+            });
+
+            browserRoot.addView(toolbar, new LinearLayout.LayoutParams(
+''',
+'''            addressBar.setOnFocusChangeListener((v, hasFocus) -> {
+                if (hasFocus) MAIN.postDelayed(QuestBrowserPanelBridge::maybeShowKeyboard, 40);
+            });
+
+            urlKeyboard = createUrlKeyboard(context);
+
+            browserRoot.addView(toolbar, new LinearLayout.LayoutParams(
+''',
+'create keyboard')
+
+rep(
+'''            browserRoot.addView(webView, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f));
+            rootFrame.addView(browserRoot, new FrameLayout.LayoutParams(
+''',
+'''            browserRoot.addView(webView, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f));
+            browserRoot.addView(urlKeyboard, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+            rootFrame.addView(browserRoot, new FrameLayout.LayoutParams(
+''',
+'attach keyboard')
+
+rep(
+'''        webView = null;
+        addressBar = null;
+        rootFrame = null;
+''',
+'''        webView = null;
+        addressBar = null;
+        urlKeyboard = null;
+        rootFrame = null;
+''',
+'keyboard cleanup')
+
+JAVA.write_text(j)
+print('BrowserPanel v0.2.1 custom QWERTZ URL keyboard: ON')
+print('Quest system IME dependency for URL entry: OFF')
