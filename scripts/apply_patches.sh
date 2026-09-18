@@ -91,7 +91,6 @@ grep -n 'urlKeyboard' "$BROWSER_JAVA"
 grep -n 'Quest-style hover affordance' "$SRC"
 
 grep -n 'oculus.software.overlay_keyboard' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/AndroidManifest.xml
-grep -n 'requestSystemKeyboard' "$BROWSER_JAVA"
 grep -n 'TYPE_TEXT_VARIATION_URI' "$BROWSER_JAVA"
 grep -n 'evaluateJavascript' "$BROWSER_JAVA"
 
