@@ -1,0 +1,118 @@
+package com.oculus.xrpassthroughocclusion;
+
+import android.app.Activity;
+import android.app.Presentation;
+import android.content.Context;
+import android.graphics.Color;
+import android.graphics.SurfaceTexture;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
+import android.view.Gravity;
+import android.view.InputDevice;
+import android.view.MotionEvent;
+import android.view.Surface;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+
+public final class QuestBrowserPanelBridge {
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static VirtualDisplay virtualDisplay;
+    private static BrowserPresentation presentation;
+    private static Surface surface;
+    private static FrameLayout rootFrame;
+    private static WebView webView;
+    private static EditText addressBar;
+    private static int surfaceWidth;
+    private static int surfaceHeight;
+
+    private QuestBrowserPanelBridge() {}
+
+    public static void start(
+            final Activity activity,
+            final SurfaceTexture surfaceTexture,
+            final int width,
+            final int height,
+            final int densityDpi) {
+        MAIN.post(() -> {
+            stopInternal();
+            try {
+                surfaceWidth = width;
+                surfaceHeight = height;
+                surfaceTexture.setDefaultBufferSize(width, height);
+                surface = new Surface(surfaceTexture);
+
+                DisplayManager displayManager =
+                        (DisplayManager) activity.getSystemService(Context.DISPLAY_SERVICE);
+                int flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY |
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION;
+                virtualDisplay = displayManager.createVirtualDisplay(
+                        "QuestBrowserPanel",
+                        width,
+                        height,
+                        densityDpi,
+                        surface,
+                        flags);
+                if (virtualDisplay == null || virtualDisplay.getDisplay() == null) {
+                    stopInternal();
+                    return;
+                }
+
+                presentation = new BrowserPresentation(
+                        activity,
+                        virtualDisplay.getDisplay(),
+                        width,
+                        height);
+                presentation.show();
+            } catch (Throwable ignored) {
+                stopInternal();
+            }
+        });
+    }
+
+    public static void pointer(final float normalizedX, final float normalizedY, final int action) {
+        MAIN.post(() -> {
+            if (rootFrame == null) return;
+            float nx = Math.max(0f, Math.min(1f, normalizedX));
+            float ny = Math.max(0f, Math.min(1f, normalizedY));
+            float width = rootFrame.getWidth() > 0 ? rootFrame.getWidth() : surfaceWidth;
+            float height = rootFrame.getHeight() > 0 ? rootFrame.getHeight() : surfaceHeight;
+            float x = nx * width;
+            float y = ny * height;
+            long now = SystemClock.uptimeMillis();
+            try {
+                if (action == MotionEvent.ACTION_HOVER_MOVE) {
+                    MotionEvent hover = MotionEvent.obtain(
+                            now, now, MotionEvent.ACTION_HOVER_MOVE, x, y, 0);
+                    hover.setSource(InputDevice.SOURCE_MOUSE);
+                    rootFrame.dispatchGenericMotionEvent(hover);
+                    hover.recycle();
+                    return;
+                }
+                MotionEvent event = MotionEvent.obtain(now, now, action, x, y, 0);
+                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                rootFrame.dispatchTouchEvent(event);
+                event.recycle();
+            } catch (Throwable ignored) {}
+        });
+    }
+
+    public static void click(final float normalizedX, final float normalizedY) {
+        MAIN.post(() -> {
+            if (rootFrame == null) return;
+            float nx = Math.max(0f, Math.min(1f, normalizedX));
+            float ny = Math.max(0f, Math.min(1f, normalizedY));

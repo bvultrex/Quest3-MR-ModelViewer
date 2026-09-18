@@ -1,0 +1,118 @@
+            float width = rootFrame.getWidth() > 0 ? rootFrame.getWidth() : surfaceWidth;
+            float height = rootFrame.getHeight() > 0 ? rootFrame.getHeight() : surfaceHeight;
+            float x = nx * width;
+            float y = ny * height;
+            long down = SystemClock.uptimeMillis();
+            try {
+                MotionEvent press = MotionEvent.obtain(
+                        down, down, MotionEvent.ACTION_DOWN, x, y, 0);
+                press.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                rootFrame.dispatchTouchEvent(press);
+                press.recycle();
+                MotionEvent release = MotionEvent.obtain(
+                        down, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, x, y, 0);
+                release.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                rootFrame.dispatchTouchEvent(release);
+                release.recycle();
+                MAIN.postDelayed(QuestBrowserPanelBridge::maybeShowKeyboard, 60);
+            } catch (Throwable ignored) {}
+        });
+    }
+
+    public static void stop() {
+        MAIN.post(QuestBrowserPanelBridge::stopInternal);
+    }
+
+    private static void maybeShowKeyboard() {
+        if (addressBar == null || !addressBar.hasFocus()) return;
+        try {
+            addressBar.setFocusable(true);
+            addressBar.setFocusableInTouchMode(true);
+            addressBar.requestFocus();
+            if (presentation != null && presentation.getWindow() != null) {
+                presentation.getWindow().setSoftInputMode(
+                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+            }
+            InputMethodManager imm = (InputMethodManager)
+                    addressBar.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.restartInput(addressBar);
+                imm.showSoftInput(addressBar, InputMethodManager.SHOW_IMPLICIT);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static void navigate() {
+        if (webView == null || addressBar == null) return;
+        String url = addressBar.getText().toString().trim();
+        if (url.isEmpty()) return;
+        if (!url.contains("://")) url = "https://" + url;
+        webView.loadUrl(url);
+        webView.requestFocus();
+    }
+
+    private static Button toolbarButton(Context context, String text) {
+        Button button = new Button(context);
+        button.setText(text);
+        button.setTextSize(17f);
+        button.setAllCaps(false);
+        button.setTextColor(Color.WHITE);
+        button.setBackgroundColor(Color.rgb(46, 49, 54));
+        button.setPadding(0, 0, 0, 0);
+        return button;
+    }
+
+    private static int dp(Context context, int value) {
+        return Math.max(1, Math.round(
+                value * context.getResources().getDisplayMetrics().density));
+    }
+
+    private static final class BrowserPresentation extends Presentation {
+        private final int width;
+        private final int height;
+
+        BrowserPresentation(Context outerContext, android.view.Display display, int width, int height) {
+            super(outerContext, display);
+            this.width = width;
+            this.height = height;
+        }
+
+        @Override
+        protected void onCreate(Bundle savedInstanceState) {
+            super.onCreate(savedInstanceState);
+            requestWindowFeature(Window.FEATURE_NO_TITLE);
+
+            Context context = getContext();
+            rootFrame = new FrameLayout(context);
+            rootFrame.setBackgroundColor(Color.rgb(18, 20, 24));
+
+            LinearLayout browserRoot = new LinearLayout(context);
+            browserRoot.setOrientation(LinearLayout.VERTICAL);
+            browserRoot.setBackgroundColor(Color.rgb(18, 20, 24));
+
+            LinearLayout toolbar = new LinearLayout(context);
+            toolbar.setOrientation(LinearLayout.HORIZONTAL);
+            toolbar.setGravity(Gravity.CENTER_VERTICAL);
+            toolbar.setPadding(dp(context, 8), dp(context, 5), dp(context, 8), dp(context, 5));
+            toolbar.setBackgroundColor(Color.rgb(31, 34, 39));
+
+            Button back = toolbarButton(context, "‹");
+            Button forward = toolbarButton(context, "›");
+            Button reload = toolbarButton(context, "↻");
+            Button go = toolbarButton(context, "GO");
+
+            addressBar = new EditText(context);
+            addressBar.setSingleLine(true);
+            addressBar.setSelectAllOnFocus(true);
+            addressBar.setText("https://www.wikipedia.org/");
+            addressBar.setTextColor(Color.WHITE);
+            addressBar.setHintTextColor(Color.rgb(175, 180, 188));
+            addressBar.setTextSize(16f);
+            addressBar.setBackgroundColor(Color.rgb(55, 59, 66));
+            addressBar.setPadding(dp(context, 14), 0, dp(context, 14), 0);
+
+            int buttonWidth = dp(context, 54);
+            int toolbarHeight = dp(context, 58);
+            toolbar.addView(back, new LinearLayout.LayoutParams(buttonWidth, toolbarHeight));
+            toolbar.addView(forward, new LinearLayout.LayoutParams(buttonWidth, toolbarHeight));
+            toolbar.addView(reload, new LinearLayout.LayoutParams(buttonWidth, toolbarHeight));

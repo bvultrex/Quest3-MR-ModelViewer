@@ -1,0 +1,118 @@
+            toolbar.addView(addressBar, new LinearLayout.LayoutParams(0, toolbarHeight, 1f));
+            toolbar.addView(go, new LinearLayout.LayoutParams(dp(context, 64), toolbarHeight));
+
+            webView = new WebView(context);
+            webView.setBackgroundColor(Color.WHITE);
+            webView.setFocusable(true);
+            webView.setFocusableInTouchMode(true);
+            webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+
+            WebSettings settings = webView.getSettings();
+            settings.setJavaScriptEnabled(true);
+            settings.setDomStorageEnabled(true);
+            settings.setLoadWithOverviewMode(false);
+            settings.setUseWideViewPort(true);
+            settings.setBuiltInZoomControls(false);
+            settings.setDisplayZoomControls(false);
+            settings.setMediaPlaybackRequiresUserGesture(false);
+            settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+            settings.setSupportZoom(true);
+
+            webView.setWebViewClient(new WebViewClient() {
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    if (addressBar != null && !addressBar.hasFocus()) {
+                        addressBar.setText(url);
+                    }
+                }
+            });
+            webView.setWebChromeClient(new WebChromeClient());
+
+            back.setOnClickListener(v -> {
+                if (webView != null && webView.canGoBack()) webView.goBack();
+            });
+            forward.setOnClickListener(v -> {
+                if (webView != null && webView.canGoForward()) webView.goForward();
+            });
+            reload.setOnClickListener(v -> {
+                if (webView != null) webView.reload();
+            });
+            go.setOnClickListener(v -> navigate());
+            addressBar.setOnEditorActionListener((v, actionId, event) -> {
+                navigate();
+                return true;
+            });
+            addressBar.setOnFocusChangeListener((v, hasFocus) -> {
+                if (hasFocus) MAIN.postDelayed(QuestBrowserPanelBridge::maybeShowKeyboard, 80);
+            });
+
+            browserRoot.addView(toolbar, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dp(context, 68)));
+            browserRoot.addView(webView, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    0,
+                    1f));
+            rootFrame.addView(browserRoot, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+            setContentView(rootFrame);
+
+            Window window = getWindow();
+            if (window != null) {
+                window.setBackgroundDrawableResource(android.R.color.transparent);
+                window.setLayout(width, height);
+                window.setSoftInputMode(
+                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING |
+                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+                WindowManager.LayoutParams attrs = window.getAttributes();
+                attrs.width = width;
+                attrs.height = height;
+                attrs.gravity = Gravity.TOP | Gravity.LEFT;
+                attrs.x = 0;
+                attrs.y = 0;
+                window.setAttributes(attrs);
+                window.getDecorView().setPadding(0, 0, 0, 0);
+                window.getDecorView().setSystemUiVisibility(
+                        View.SYSTEM_UI_FLAG_LAYOUT_STABLE |
+                        View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
+                        View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
+                        View.SYSTEM_UI_FLAG_FULLSCREEN |
+                        View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                        View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+            }
+
+            webView.loadUrl("https://www.wikipedia.org/");
+        }
+    }
+
+    private static void stopInternal() {
+        try {
+            if (webView != null) {
+                webView.stopLoading();
+                webView.loadUrl("about:blank");
+                webView.destroy();
+            }
+        } catch (Throwable ignored) {}
+        webView = null;
+        addressBar = null;
+        rootFrame = null;
+
+        try {
+            if (presentation != null) presentation.dismiss();
+        } catch (Throwable ignored) {}
+        presentation = null;
+
+        try {
+            if (virtualDisplay != null) virtualDisplay.release();
+        } catch (Throwable ignored) {}
+        virtualDisplay = null;
+
+        try {
+            if (surface != null) surface.release();
+        } catch (Throwable ignored) {}
+        surface = null;
+        surfaceWidth = 0;
+        surfaceHeight = 0;
+    }
+}

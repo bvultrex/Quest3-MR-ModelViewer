@@ -41,6 +41,10 @@ cat BrowserPanel/parts/patch_browser_panel.*.pyfrag > /tmp/patch_browser_panel.p
 python3 -m py_compile /tmp/patch_browser_panel.py
 python3 /tmp/patch_browser_panel.py
 
+cat BrowserPanel/v02/parts/patch_browser_panel_v02.*.pyfrag > /tmp/patch_browser_panel_v02.py
+python3 -m py_compile /tmp/patch_browser_panel_v02.py
+python3 /tmp/patch_browser_panel_v02.py
+
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
 INPUT="$SRC_DIR/XrPassthroughOcclusionInput.cpp"
@@ -62,3 +66,10 @@ grep -n 'wikipedia.org' "$BROWSER_JAVA"
 grep -n 'createVirtualDisplay' "$BROWSER_JAVA"
 grep -n 'dispatchTouchEvent' "$BROWSER_JAVA"
 grep -n 'android.permission.INTERNET' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/AndroidManifest.xml
+
+grep -n 'kMinWidthMeters' "$SRC"
+grep -n 'browserResizeHoverHand' "$SRC"
+grep -n 'resizeFixedCorner' "$SRC"
+grep -n 'addressBar' "$BROWSER_JAVA"
+grep -n 'InputMethodManager' "$BROWSER_JAVA"
+grep -n 'toolbarButton' "$BROWSER_JAVA"

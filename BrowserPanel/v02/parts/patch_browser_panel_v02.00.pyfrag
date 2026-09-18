@@ -1,0 +1,104 @@
+from pathlib import Path
+
+ROOT = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion')
+CPP = ROOT / 'Src/XrPassthroughOcclusionGl.cpp'
+JAVA = ROOT / 'java/com/oculus/xrpassthroughocclusion/QuestBrowserPanelBridge.java'
+REPO = Path('BrowserPanel/v02')
+
+text = CPP.read_text()
+
+old_dims = '''    static constexpr float kWidthMeters = 1.05f;\n    static constexpr float kHeightMeters = 0.65625f;\n\n    bool initialized = false;'''
+new_dims = '''    static constexpr float kInitialWidthMeters = 1.05f;\n    static constexpr float kInitialHeightMeters = 0.65625f;\n    static constexpr float kMinWidthMeters = 0.48f;\n    static constexpr float kMaxWidthMeters = 2.20f;\n\n    bool initialized = false;'''
+if old_dims not in text:
+    raise SystemExit('BrowserPanel v0.2 state dimension anchor not found')
+text = text.replace(old_dims, new_dims, 1)
+
+old_grab_fields = '''    bool grabbed = false;\n    int grabHand = -1;\n    Matrix4f pose;\n    Matrix4f grabOffset;\n'''
+new_grab_fields = '''    bool grabbed = false;\n    int grabHand = -1;\n    Matrix4f pose;\n    Matrix4f grabOffset;\n    float widthMeters = kInitialWidthMeters;\n    float heightMeters = kInitialHeightMeters;\n    bool resizing = false;\n    int resizeHand = -1;\n    int resizeCorner = -1;\n    float resizeFixedCorner[3] = {0.0f, 0.0f, 0.0f};\n    float resizeStartWidth = kInitialWidthMeters;\n    float resizeStartHeight = kInitialHeightMeters;\n'''
+if old_grab_fields not in text:
+    raise SystemExit('BrowserPanel v0.2 resize state anchor not found')
+text = text.replace(old_grab_fields, new_grab_fields, 1)
+
+# v0.1 used fixed dimensions everywhere. v0.2 keeps the backing texture fixed,
+# but the spatial quad itself may scale proportionally.
+text = text.replace('QuestBrowserPanelState::kWidthMeters', 'gQuestBrowserPanel.widthMeters')
+text = text.replace('QuestBrowserPanelState::kHeightMeters', 'gQuestBrowserPanel.heightMeters')
+
+start_marker = '''#if defined(ANDROID)\n    if (gQuestBrowserPanel.initialized && !gQuestBrowserPanel.placed) {'''
+end_marker = '''#endif\n\n    const auto panelLocalPoint'''
+start = text.find(start_marker)
+end = text.find(end_marker, start)
+if start < 0 or end < 0:
+    raise SystemExit('BrowserPanel v0.2 interaction block anchors not found')
+
+interaction = r'''#if defined(ANDROID)
+    if (gQuestBrowserPanel.initialized && !gQuestBrowserPanel.placed) {
+        Matrix4f browserHeadPose = frameIn.View[0].Inverted();
+        const Matrix4f browserRightEyePose = frameIn.View[1].Inverted();
+        browserHeadPose.M[0][3] =
+            (browserHeadPose.M[0][3] + browserRightEyePose.M[0][3]) * 0.5f;
+        browserHeadPose.M[1][3] =
+            (browserHeadPose.M[1][3] + browserRightEyePose.M[1][3]) * 0.5f;
+        browserHeadPose.M[2][3] =
+            (browserHeadPose.M[2][3] + browserRightEyePose.M[2][3]) * 0.5f;
+        gQuestBrowserPanel.pose =
+            browserHeadPose * Matrix4f::Translation(0.0f, 0.02f, -0.82f);
+        gQuestBrowserPanel.placed = true;
+    }
+
+    int browserPointerHand = -1;
+    float browserPointerU = 0.0f;
+    float browserPointerV = 0.0f;
+    float browserPointerT = 1000.0f;
+    float browserHitWorld[3] = {0.0f, 0.0f, 0.0f};
+    int browserResizeHoverHand = -1;
+    int browserResizeHoverCorner = -1;
+    float browserResizeHitWorld[3] = {0.0f, 0.0f, 0.0f};
+    int resizeCornerForHand[2] = {-1, -1};
+    float resizeHitForHand[2][3] = {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}};
+
+    // Raycast beyond the visible quad as well. Resize hit zones are invisible
+    // L-shaped corner halos OUTSIDE the browser image, Quest-window style.
+    if (gQuestBrowserPanel.initialized && gQuestBrowserPanel.placed) {
+        const float panelNormal[3] = {
+            gQuestBrowserPanel.pose.M[0][2],
+            gQuestBrowserPanel.pose.M[1][2],
+            gQuestBrowserPanel.pose.M[2][2]};
+        const float halfWidth = gQuestBrowserPanel.widthMeters * 0.5f;
+        const float halfHeight = gQuestBrowserPanel.heightMeters * 0.5f;
+        constexpr float kResizeOuterPad = 0.075f;
+        constexpr float kResizeShoulder = 0.060f;
+
+        for (int hand = 0; hand < 2; ++hand) {
+            if (!handActive[hand] ||
+                (panelGrabbed && panelGrabHand == hand) ||
+                (modelGrabbed && modelGrabHand == hand) ||
+                (gQuestBrowserPanel.grabbed && gQuestBrowserPanel.grabHand == hand) ||
+                (gQuestBrowserPanel.resizing && gQuestBrowserPanel.resizeHand != hand)) {
+                continue;
+            }
+
+            const float origin[3] = {
+                handPose[hand].M[0][3],
+                handPose[hand].M[1][3],
+                handPose[hand].M[2][3]};
+            const float direction[3] = {
+                -handPose[hand].M[0][2],
+                -handPose[hand].M[1][2],
+                -handPose[hand].M[2][2]};
+            const float denom =
+                direction[0] * panelNormal[0] +
+                direction[1] * panelNormal[1] +
+                direction[2] * panelNormal[2];
+            if (std::abs(denom) < 0.0001f) {
+                continue;
+            }
+
+            const float toPanel[3] = {
+                gQuestBrowserPanel.pose.M[0][3] - origin[0],
+                gQuestBrowserPanel.pose.M[1][3] - origin[1],
+                gQuestBrowserPanel.pose.M[2][3] - origin[2]};
+            const float t =
+                (toPanel[0] * panelNormal[0] +
+                 toPanel[1] * panelNormal[1] +
+                 toPanel[2] * panelNormal[2]) / denom;

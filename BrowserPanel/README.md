@@ -1,27 +1,40 @@
-# BrowserPanel experiment v0.1
+# BrowserPanel experiment v0.2
 
 Base: Quest3 MR Model Viewer v1.0.1 hardware-accepted final.
 
-This experiment adds one spatial browser object to the proven Viewer renderer. It intentionally does not reuse the old browser compositor/depth pipeline.
+## v0.1 hardware checkpoint
 
-## v0.1 scope
+Quest 3 hardware acceptance confirmed:
+- Wikipedia is fully visible with no right-edge crop.
+- Browser text is sharp.
+- Environment Depth occlusion works.
+- Controller trigger opens links.
+- Grip moves and rotates the panel correctly.
 
-- Android WebView / Chromium loads Wikipedia
-- WebView -> VirtualDisplay -> SurfaceTexture -> GL_TEXTURE_EXTERNAL_OES
-- browser texture is drawn inside the existing Viewer multiview projection pass
-- BrowserMode changes only the material source; Environment Depth stays on the Viewer's proven 3x3 soft-occlusion shader path
-- both controllers can ray-hit the browser panel
-- trigger forwards a click to WebView
-- grip near the panel moves and rotates it with preserved hand offset
+This v0.1 result is the golden BrowserPanel baseline. v0.2 must preserve it.
 
-Not included yet: resize handles, URL bar, tabs, downloads, favorites, system keyboard integration, DE-QWERTZ remap.
+## v0.2 scope
 
-## Hardware acceptance checkpoint
+- keep fixed 2560x1600 WebView / SurfaceTexture producer
+- slim browser toolbar: Back, Forward, Reload, URL field, GO
+- URL field requests the Quest system keyboard
+- proportional spatial resize from all four corners
+- resize hit zones live OUTSIDE the visible browser image
+- no permanent resize indicator overlays the webpage
+- a small hover marker may appear outside the selected corner
+- the opposite corner remains fixed while resizing
+- direct body Grip still moves and rotates the entire panel
+- existing Viewer Environment Depth path remains unchanged
 
-1. Wikipedia is fully visible with no right-edge crop.
-2. Text is sharp enough to read comfortably.
-3. Trigger opens a link.
-4. Grip moves and rotates the panel.
-5. A real table/desk occludes the panel with the same soft edge quality as GLB models.
+Resize is intentionally proportional in v0.2. This preserves the known-good 1.6 WebView backing aspect and avoids reopening the historical SurfaceTexture crop/stretch problem.
 
-Do not add resize/browser chrome until this checkpoint is confirmed on Quest 3 hardware.
+## v0.2 hardware acceptance
+
+1. All v0.1 acceptance points still pass.
+2. Each outer corner can be targeted just beyond the browser edge.
+3. Grip on that outer corner resizes proportionally and keeps the opposite corner anchored.
+4. No permanent resize handle appears inside webpage content.
+5. Back, Forward and Reload work.
+6. URL field receives focus, keyboard can be opened, and GO / Enter navigates to the typed URL.
+
+Tabs, favorites, downloads and free-aspect resize remain out of scope.

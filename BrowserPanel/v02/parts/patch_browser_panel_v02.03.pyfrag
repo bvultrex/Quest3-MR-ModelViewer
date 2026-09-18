@@ -1,0 +1,102 @@
+                gQuestBrowserPanel.pose.M[2][2] * dz;
+            if (std::abs(localX) <= gQuestBrowserPanel.widthMeters * 0.55f &&
+                std::abs(localY) <= gQuestBrowserPanel.heightMeters * 0.58f &&
+                std::abs(localZ) <= 0.14f) {
+                gQuestBrowserPanel.grabbed = true;
+                gQuestBrowserPanel.grabHand = hand;
+                gQuestBrowserPanel.grabOffset =
+                    handPose[hand].Inverted() * gQuestBrowserPanel.pose;
+                browserPointerHand = -1;
+                break;
+            }
+        }
+    }
+
+    if (gQuestBrowserPanel.grabbed) {
+        const int hand = gQuestBrowserPanel.grabHand;
+        if (hand >= 0 && hand < 2 && handActive[hand] && gripDown[hand] &&
+            !(panelGrabbed && panelGrabHand == hand) &&
+            !(modelGrabbed && modelGrabHand == hand)) {
+            gQuestBrowserPanel.pose = handPose[hand] * gQuestBrowserPanel.grabOffset;
+            browserPointerHand = -1;
+        } else {
+            gQuestBrowserPanel.grabbed = false;
+            gQuestBrowserPanel.grabHand = -1;
+        }
+    }
+
+    if (browserPointerHand >= 0 && !gQuestBrowserPanel.resizing && !gQuestBrowserPanel.grabbed) {
+        QuestBrowserSendPointer(
+            browserPointerU,
+            browserPointerV,
+            AMOTION_EVENT_ACTION_HOVER_MOVE);
+        const bool browserTriggerDown =
+            QuestMrTriggerDownForHand(browserPointerHand);
+        const bool browserTriggerPressed =
+            browserTriggerDown && !uiTriggerPrev[browserPointerHand];
+        if (browserTriggerPressed) {
+            QuestBrowserClick(browserPointerU, browserPointerV);
+        }
+    }
+#endif
+'''
+
+text = text[:start] + interaction + text[end + len('#endif\n'):]
+
+# Exclude a controller that is hovering/resizing the outer browser corner from
+# the Viewer tablet UI in the same frame.
+old_tablet_exclusion = '''#if defined(ANDROID)\n            hand == browserPointerHand ||\n#endif'''
+new_tablet_exclusion = '''#if defined(ANDROID)\n            hand == browserPointerHand ||\n            hand == browserResizeHoverHand ||\n            (gQuestBrowserPanel.resizing && hand == gQuestBrowserPanel.resizeHand) ||\n#endif'''
+if old_tablet_exclusion not in text:
+    raise SystemExit('BrowserPanel v0.2 tablet exclusion anchor not found')
+text = text.replace(old_tablet_exclusion, new_tablet_exclusion, 1)
+
+# Draw a tiny hover marker only OUTSIDE the browser image when a resize corner
+# is targeted. There are no permanent handles or overlays inside WebView.
+resize_draw_anchor = '''        if (browserPointerHand >= 0) {\n            const Matrix4f pointerMarker ='''
+if resize_draw_anchor not in text:
+    raise SystemExit('BrowserPanel v0.2 pointer marker anchor not found')
+resize_draw = r'''        if (browserResizeHoverHand >= 0) {
+            const Matrix4f resizeMarker =
+                Matrix4f::Translation(
+                    browserResizeHitWorld[0] + gQuestBrowserPanel.pose.M[0][2] * 0.004f,
+                    browserResizeHitWorld[1] + gQuestBrowserPanel.pose.M[1][2] * 0.004f,
+                    browserResizeHitWorld[2] + gQuestBrowserPanel.pose.M[2][2] * 0.004f) *
+                Matrix4f::Scaling(0.010f, 0.010f, 0.0015f);
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                1.0f));
+            GL(glUniform3f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+                0.58f, 0.92f, 1.00f));
+            GL(glUniformMatrix4fv(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+                1,
+                GL_TRUE,
+                &resizeMarker.M[0][0]));
+            GL(glDrawElements(
+                GL_TRIANGLES,
+                scene.Box.GetIndexCount(),
+                GL_UNSIGNED_SHORT,
+                nullptr));
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                0.0f));
+        }
+
+        if (browserPointerHand >= 0) {
+            const Matrix4f pointerMarker ='''
+text = text.replace(resize_draw_anchor, resize_draw, 1)
+
+CPP.write_text(text)
+
+# Replace the Android bridge with the v0.2 toolbar/URL-bar version.
+parts = sorted((REPO / 'java_parts').glob('QuestBrowserPanelBridge.*.javafrag'))
+if not parts:
+    raise SystemExit('BrowserPanel v0.2 Java fragments missing')
+JAVA.write_text(''.join(p.read_text() for p in parts))
+
+print('BrowserPanel v0.2 proportional outer-corner resize: ON')
+print('BrowserPanel v0.2 invisible resize halos live outside the WebView image: ON')
+print('BrowserPanel v0.2 URL bar + back/forward/reload/go: ON')
+print('BrowserPanel v0.2 Quest keyboard request for URL EditText: ON')

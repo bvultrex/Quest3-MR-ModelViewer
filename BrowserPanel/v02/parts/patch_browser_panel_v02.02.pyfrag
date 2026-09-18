@@ -1,0 +1,103 @@
+            const float origin[3] = {
+                handPose[hand].M[0][3],
+                handPose[hand].M[1][3],
+                handPose[hand].M[2][3]};
+            const float direction[3] = {
+                -handPose[hand].M[0][2],
+                -handPose[hand].M[1][2],
+                -handPose[hand].M[2][2]};
+            const float denom =
+                direction[0] * normal[0] + direction[1] * normal[1] + direction[2] * normal[2];
+            if (std::abs(denom) > 0.0001f) {
+                const float toPlane[3] = {
+                    gQuestBrowserPanel.resizeFixedCorner[0] - origin[0],
+                    gQuestBrowserPanel.resizeFixedCorner[1] - origin[1],
+                    gQuestBrowserPanel.resizeFixedCorner[2] - origin[2]};
+                const float t =
+                    (toPlane[0] * normal[0] + toPlane[1] * normal[1] + toPlane[2] * normal[2]) / denom;
+                if (t > 0.05f && t < 4.0f) {
+                    const float hit[3] = {
+                        origin[0] + direction[0] * t,
+                        origin[1] + direction[1] * t,
+                        origin[2] + direction[2] * t};
+                    const float dx = hit[0] - gQuestBrowserPanel.resizeFixedCorner[0];
+                    const float dy = hit[1] - gQuestBrowserPanel.resizeFixedCorner[1];
+                    const float dz = hit[2] - gQuestBrowserPanel.resizeFixedCorner[2];
+                    const int corner = gQuestBrowserPanel.resizeCorner;
+                    const float sx = (corner == 1 || corner == 3) ? 1.0f : -1.0f;
+                    const float sy = (corner == 2 || corner == 3) ? 1.0f : -1.0f;
+                    const float projectedWidth = sx * (
+                        gQuestBrowserPanel.pose.M[0][0] * dx +
+                        gQuestBrowserPanel.pose.M[1][0] * dy +
+                        gQuestBrowserPanel.pose.M[2][0] * dz);
+                    const float projectedHeight = sy * (
+                        gQuestBrowserPanel.pose.M[0][1] * dx +
+                        gQuestBrowserPanel.pose.M[1][1] * dy +
+                        gQuestBrowserPanel.pose.M[2][1] * dz);
+                    const float startW = gQuestBrowserPanel.resizeStartWidth;
+                    const float startH = gQuestBrowserPanel.resizeStartHeight;
+                    const float diagSq = std::max(0.0001f, startW * startW + startH * startH);
+                    float scale =
+                        (projectedWidth * startW + projectedHeight * startH) / diagSq;
+                    const float minScale = QuestBrowserPanelState::kMinWidthMeters / startW;
+                    const float maxScale = QuestBrowserPanelState::kMaxWidthMeters / startW;
+                    scale = std::max(minScale, std::min(maxScale, scale));
+                    const float newWidth = startW * scale;
+                    const float newHeight = startH * scale;
+                    const float movingCorner[3] = {
+                        gQuestBrowserPanel.resizeFixedCorner[0] +
+                            gQuestBrowserPanel.pose.M[0][0] * sx * newWidth +
+                            gQuestBrowserPanel.pose.M[0][1] * sy * newHeight,
+                        gQuestBrowserPanel.resizeFixedCorner[1] +
+                            gQuestBrowserPanel.pose.M[1][0] * sx * newWidth +
+                            gQuestBrowserPanel.pose.M[1][1] * sy * newHeight,
+                        gQuestBrowserPanel.resizeFixedCorner[2] +
+                            gQuestBrowserPanel.pose.M[2][0] * sx * newWidth +
+                            gQuestBrowserPanel.pose.M[2][1] * sy * newHeight};
+                    gQuestBrowserPanel.widthMeters = newWidth;
+                    gQuestBrowserPanel.heightMeters = newHeight;
+                    gQuestBrowserPanel.pose.M[0][3] =
+                        (gQuestBrowserPanel.resizeFixedCorner[0] + movingCorner[0]) * 0.5f;
+                    gQuestBrowserPanel.pose.M[1][3] =
+                        (gQuestBrowserPanel.resizeFixedCorner[1] + movingCorner[1]) * 0.5f;
+                    gQuestBrowserPanel.pose.M[2][3] =
+                        (gQuestBrowserPanel.resizeFixedCorner[2] + movingCorner[2]) * 0.5f;
+                    browserResizeHoverHand = hand;
+                    browserResizeHoverCorner = corner;
+                    browserResizeHitWorld[0] = movingCorner[0];
+                    browserResizeHitWorld[1] = movingCorner[1];
+                    browserResizeHitWorld[2] = movingCorner[2];
+                }
+            }
+            browserPointerHand = -1;
+        } else {
+            gQuestBrowserPanel.resizing = false;
+            gQuestBrowserPanel.resizeHand = -1;
+            gQuestBrowserPanel.resizeCorner = -1;
+        }
+    }
+
+    // Existing direct near-hand grip still moves and rotates the full panel.
+    if (gQuestBrowserPanel.initialized && gQuestBrowserPanel.placed &&
+        !gQuestBrowserPanel.resizing && !gQuestBrowserPanel.grabbed &&
+        !panelGrabbed && !modelGrabbed) {
+        for (int hand = 0; hand < 2; ++hand) {
+            if (!handActive[hand] || !gripPressed[hand] || resizeCornerForHand[hand] >= 0) {
+                continue;
+            }
+            const Matrix4f grabTip =
+                handPose[hand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+            const float dx = grabTip.M[0][3] - gQuestBrowserPanel.pose.M[0][3];
+            const float dy = grabTip.M[1][3] - gQuestBrowserPanel.pose.M[1][3];
+            const float dz = grabTip.M[2][3] - gQuestBrowserPanel.pose.M[2][3];
+            const float localX =
+                gQuestBrowserPanel.pose.M[0][0] * dx +
+                gQuestBrowserPanel.pose.M[1][0] * dy +
+                gQuestBrowserPanel.pose.M[2][0] * dz;
+            const float localY =
+                gQuestBrowserPanel.pose.M[0][1] * dx +
+                gQuestBrowserPanel.pose.M[1][1] * dy +
+                gQuestBrowserPanel.pose.M[2][1] * dz;
+            const float localZ =
+                gQuestBrowserPanel.pose.M[0][2] * dx +
+                gQuestBrowserPanel.pose.M[1][2] * dy +

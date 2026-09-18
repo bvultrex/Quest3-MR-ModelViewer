@@ -1,0 +1,103 @@
+            if (t < 0.05f || t > 4.0f) {
+                continue;
+            }
+
+            const float hit[3] = {
+                origin[0] + direction[0] * t,
+                origin[1] + direction[1] * t,
+                origin[2] + direction[2] * t};
+            const float dx = hit[0] - gQuestBrowserPanel.pose.M[0][3];
+            const float dy = hit[1] - gQuestBrowserPanel.pose.M[1][3];
+            const float dz = hit[2] - gQuestBrowserPanel.pose.M[2][3];
+            const float localX =
+                gQuestBrowserPanel.pose.M[0][0] * dx +
+                gQuestBrowserPanel.pose.M[1][0] * dy +
+                gQuestBrowserPanel.pose.M[2][0] * dz;
+            const float localY =
+                gQuestBrowserPanel.pose.M[0][1] * dx +
+                gQuestBrowserPanel.pose.M[1][1] * dy +
+                gQuestBrowserPanel.pose.M[2][1] * dz;
+            const float absX = std::abs(localX);
+            const float absY = std::abs(localY);
+
+            const bool withinOuterBounds =
+                absX <= halfWidth + kResizeOuterPad &&
+                absY <= halfHeight + kResizeOuterPad;
+            const bool onOuterCornerHalo = withinOuterBounds &&
+                ((absX >= halfWidth && absY >= halfHeight - kResizeShoulder) ||
+                 (absY >= halfHeight && absX >= halfWidth - kResizeShoulder));
+            if (onOuterCornerHalo) {
+                const int corner =
+                    (localX >= 0.0f ? 1 : 0) + (localY >= 0.0f ? 2 : 0);
+                resizeCornerForHand[hand] = corner;
+                resizeHitForHand[hand][0] = hit[0];
+                resizeHitForHand[hand][1] = hit[1];
+                resizeHitForHand[hand][2] = hit[2];
+                if (browserResizeHoverHand < 0 || t < browserPointerT) {
+                    browserResizeHoverHand = hand;
+                    browserResizeHoverCorner = corner;
+                    browserResizeHitWorld[0] = hit[0];
+                    browserResizeHitWorld[1] = hit[1];
+                    browserResizeHitWorld[2] = hit[2];
+                }
+                continue;
+            }
+
+            if (!gQuestBrowserPanel.resizing &&
+                absX <= halfWidth && absY <= halfHeight && t < browserPointerT) {
+                browserPointerHand = hand;
+                browserPointerT = t;
+                browserPointerU = localX / gQuestBrowserPanel.widthMeters + 0.5f;
+                browserPointerV = 0.5f - localY / gQuestBrowserPanel.heightMeters;
+                browserHitWorld[0] = hit[0];
+                browserHitWorld[1] = hit[1];
+                browserHitWorld[2] = hit[2];
+            }
+        }
+    }
+
+    // Start a proportional resize from an invisible corner halo. The opposite
+    // corner stays fixed in room space while the selected corner follows the ray.
+    if (gQuestBrowserPanel.initialized && gQuestBrowserPanel.placed &&
+        !gQuestBrowserPanel.resizing && !gQuestBrowserPanel.grabbed &&
+        !panelGrabbed && !modelGrabbed) {
+        for (int hand = 0; hand < 2; ++hand) {
+            if (!handActive[hand] || !gripPressed[hand] || resizeCornerForHand[hand] < 0) {
+                continue;
+            }
+            const int corner = resizeCornerForHand[hand];
+            const float sx = (corner == 1 || corner == 3) ? 1.0f : -1.0f;
+            const float sy = (corner == 2 || corner == 3) ? 1.0f : -1.0f;
+            const float halfWidth = gQuestBrowserPanel.widthMeters * 0.5f;
+            const float halfHeight = gQuestBrowserPanel.heightMeters * 0.5f;
+            gQuestBrowserPanel.resizeFixedCorner[0] =
+                gQuestBrowserPanel.pose.M[0][3] -
+                gQuestBrowserPanel.pose.M[0][0] * sx * halfWidth -
+                gQuestBrowserPanel.pose.M[0][1] * sy * halfHeight;
+            gQuestBrowserPanel.resizeFixedCorner[1] =
+                gQuestBrowserPanel.pose.M[1][3] -
+                gQuestBrowserPanel.pose.M[1][0] * sx * halfWidth -
+                gQuestBrowserPanel.pose.M[1][1] * sy * halfHeight;
+            gQuestBrowserPanel.resizeFixedCorner[2] =
+                gQuestBrowserPanel.pose.M[2][3] -
+                gQuestBrowserPanel.pose.M[2][0] * sx * halfWidth -
+                gQuestBrowserPanel.pose.M[2][1] * sy * halfHeight;
+            gQuestBrowserPanel.resizeStartWidth = gQuestBrowserPanel.widthMeters;
+            gQuestBrowserPanel.resizeStartHeight = gQuestBrowserPanel.heightMeters;
+            gQuestBrowserPanel.resizeCorner = corner;
+            gQuestBrowserPanel.resizeHand = hand;
+            gQuestBrowserPanel.resizing = true;
+            browserPointerHand = -1;
+            break;
+        }
+    }
+
+    if (gQuestBrowserPanel.resizing) {
+        const int hand = gQuestBrowserPanel.resizeHand;
+        if (hand >= 0 && hand < 2 && handActive[hand] && gripDown[hand] &&
+            !(panelGrabbed && panelGrabHand == hand) &&
+            !(modelGrabbed && modelGrabHand == hand)) {
+            const float normal[3] = {
+                gQuestBrowserPanel.pose.M[0][2],
+                gQuestBrowserPanel.pose.M[1][2],
+                gQuestBrowserPanel.pose.M[2][2]};
