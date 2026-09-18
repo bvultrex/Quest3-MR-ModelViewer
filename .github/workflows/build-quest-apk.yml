@@ -50,7 +50,7 @@ jobs:
         run: bash scripts/install_android.sh
 
       - name: Checkout Meta OpenXR SDK v85
-        uses: actions/checkout v6
+        uses: actions/checkout@v7
         with:
           repository: meta-quest/Meta-OpenXR-SDK
           ref: v85
