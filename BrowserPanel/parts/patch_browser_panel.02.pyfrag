@@ -101,7 +101,7 @@ if old_material not in text:
 text = text.replace(old_material, new_material, 1)
 
 old_lighting = '''highp vec3 litColor;\nif (PbrMode > 0.5f) {'''
-new_lighting = ''\high vec3 litColor;\nif (BrowserMode > 0.5f) {\n    litColor = materialColor.rgb;\n} else if (PbrMode > 0.5f) {'''
+new_lighting = '''highp vec3 litColor;\nif (BrowserMode > 0.5f) {\n    litColor = materialColor.rgb;\n} else if (PbrMode > 0.5f) {'''
 if old_lighting not in text:
     raise SystemExit('BrowserPanel lighting anchor not found')
 text = text.replace(old_lighting, new_lighting, 1)
