@@ -49,6 +49,10 @@ cat BrowserPanel/v021/parts/patch_browser_panel_v021.*.pyfrag > /tmp/patch_brows
 python3 -m py_compile /tmp/patch_browser_panel_v021.py
 python3 /tmp/patch_browser_panel_v021.py
 
+cat BrowserPanel/v022/parts/patch_browser_panel_v022.*.pyfrag > /tmp/patch_browser_panel_v022.py
+python3 -m py_compile /tmp/patch_browser_panel_v022.py
+python3 /tmp/patch_browser_panel_v022.py
+
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
 INPUT="$SRC_DIR/XrPassthroughOcclusionInput.cpp"
@@ -81,3 +85,8 @@ grep -n 'toolbarButton' "$BROWSER_JAVA"
 grep -n 'custom QWERTZ URL keyboard' /tmp/patch_browser_panel_v021.py
 grep -n 'urlKeyboard' "$BROWSER_JAVA"
 grep -n 'Quest-style hover affordance' "$SRC"
+
+grep -n 'oculus.software.overlay_keyboard' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/AndroidManifest.xml
+grep -n 'requestSystemKeyboard' "$BROWSER_JAVA"
+grep -n 'TYPE_TEXT_VARIATION_URI' "$BROWSER_JAVA"
+grep -n 'evaluateJavascript' "$BROWSER_JAVA"

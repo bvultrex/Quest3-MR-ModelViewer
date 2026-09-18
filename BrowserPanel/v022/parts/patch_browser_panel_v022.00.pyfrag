@@ -1,0 +1,122 @@
+from pathlib import Path
+
+ROOT = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion')
+JAVA = ROOT / 'java/com/oculus/xrpassthroughocclusion/QuestBrowserPanelBridge.java'
+MANIFEST = ROOT / 'Projects/Android/AndroidManifest.xml'
+
+j = JAVA.read_text()
+
+def rep(old, new, label):
+    global j
+    if old not in j:
+        raise SystemExit(f'BrowserPanel v0.2.2 missing Java anchor: {label}')
+    j = j.replace(old, new, 1)
+
+old_keyboard = '''    private static void maybeShowKeyboard() {
+        if (addressBar == null || !addressBar.hasFocus()) return;
+        setUrlKeyboardVisible(true);
+    }
+'''
+new_keyboard = '''    private static void requestSystemKeyboard(final View target) {
+        if (target == null) return;
+        try {
+            target.setFocusable(true);
+            target.setFocusableInTouchMode(true);
+            target.requestFocus();
+            if (presentation != null && presentation.getWindow() != null) {
+                presentation.getWindow().setSoftInputMode(
+                        WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING |
+                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+            }
+            InputMethodManager imm = (InputMethodManager)
+                    target.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.restartInput(target);
+                imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static void maybeShowKeyboard() {
+        if (addressBar != null && addressBar.hasFocus()) {
+            requestSystemKeyboard(addressBar);
+            return;
+        }
+        if (webView == null) return;
+        try {
+            webView.evaluateJavascript(
+                    "(function(){var e=document.activeElement;if(!e)return false;" +
+                    "var t=(e.tagName||'').toLowerCase();" +
+                    "var ty=(e.type||'text').toLowerCase();" +
+                    "return t==='textarea'||e.isContentEditable||(t==='input'&&" +
+                    "ty!=='button'&&ty!=='submit'&&ty!=='checkbox'&&ty!=='radio'&&" +
+                    "ty!=='range'&&ty!=='color'&&ty!=='file');})()",
+                    value -> {
+                        if ("true".equals(value)) requestSystemKeyboard(webView);
+                    });
+        } catch (Throwable ignored) {}
+    }
+'''
+rep(old_keyboard, new_keyboard, 'system keyboard request')
+
+rep(
+'''            addressBar.setSingleLine(true);
+            addressBar.setShowSoftInputOnFocus(false);
+            addressBar.setSelectAllOnFocus(true);
+''',
+'''            addressBar.setSingleLine(true);
+            addressBar.setShowSoftInputOnFocus(true);
+            addressBar.setInputType(
+                    android.text.InputType.TYPE_CLASS_TEXT |
+                    android.text.InputType.TYPE_TEXT_VARIATION_URI);
+            addressBar.setImeOptions(
+                    android.view.inputmethod.EditorInfo.IME_ACTION_GO |
+                    android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+            addressBar.setSelectAllOnFocus(true);
+''',
+'URL system keyboard input type')
+
+# Keep the custom keyboard code compiled as an emergency fallback, but never show it in v0.2.2.
+rep(
+'''    private static void setUrlKeyboardVisible(boolean visible) {
+        if (urlKeyboard != null) {
+            urlKeyboard.setVisibility(visible ? View.VISIBLE : View.GONE);
+            urlKeyboard.requestLayout();
+        }
+    }
+''',
+'''    private static void setUrlKeyboardVisible(boolean visible) {
+        if (urlKeyboard != null) {
+            urlKeyboard.setVisibility(View.GONE);
+            urlKeyboard.requestLayout();
+        }
+    }
+''',
+'disable custom keyboard UI')
+
+JAVA.write_text(j)
+
+manifest = MANIFEST.read_text()
+if 'oculus.software.overlay_keyboard' not in manifest:
+    anchor = '''  <uses-feature
+      android:name="com.oculus.feature.PASSTHROUGH"
+      android:required="true"
+      />
+'''
+    if anchor not in manifest:
+        raise SystemExit('BrowserPanel v0.2.2 overlay keyboard manifest anchor not found')
+    manifest = manifest.replace(
+        anchor,
+        anchor + '''  <!-- Enable the Horizon OS / VrShell system keyboard overlay for reprojected Android UI. -->
+  <uses-feature
+      android:name="oculus.software.overlay_keyboard"
+      android:required="false"
+      />
+''',
+        1)
+MANIFEST.write_text(manifest)
+
+print('BrowserPanel v0.2.2 Horizon system keyboard overlay feature: ON')
+print('BrowserPanel v0.2.2 URL field uses URI IME + GO action: ON')
+print('BrowserPanel v0.2.2 WebView editable HTML fields request system keyboard: ON')
+print('BrowserPanel v0.2.2 custom in-panel keyboard visibility: OFF')

@@ -52,3 +52,18 @@ v0.2.1 changes:
 - replace the tiny hover dot with a bright cyan L-shaped corner bracket outside the webpage
 - stop depending on the Quest/Android system IME for URL entry
 - add an in-panel QWERTZ URL keyboard with backspace, URL punctuation, GO and HIDE
+
+
+## v0.2.2 system keyboard experiment
+
+Hardware feedback from v0.2.1:
+- outer resize hover indicators are now visible and resize still works
+- custom in-panel URL keyboard works, but it is not suitable as the primary browser keyboard
+- users need the normal Quest keyboard, numbers/symbols and input in arbitrary HTML fields
+
+v0.2.2:
+- enables the Horizon/VrShell overlay keyboard feature used by reprojected Android UI
+- restores Android IME input for the URL EditText
+- URL EditText requests URI keyboard semantics and IME GO
+- after browser clicks, editable HTML input/textarea/contentEditable focus is detected and the WebView requests the system keyboard
+- the custom QWERTZ panel remains compiled only as fallback code but is kept hidden
