@@ -1,0 +1,23 @@
+from pathlib import Path
+
+cpp_path = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp_path.read_text()
+
+# NDK GLES3 headers do not consistently expose the external OES texture target.
+include_anchor = '#include <GLES3/gl3ext.h>\n'
+if '#include <GLES2/gl2ext.h>' not in text:
+    if include_anchor not in text:
+        raise SystemExit('BrowserPanel GLES OES include anchor not found')
+    text = text.replace(
+        include_anchor,
+        include_anchor + '#include <GLES2/gl2ext.h>\n',
+        1)
+
+# The Java click bridge accepts normalized UV only.
+old_click = 'void QuestBrowserClick(float u, float v, int action) {'
+if old_click in text:
+    text = text.replace(old_click, 'void QuestBrowserClick(float u, float v) {', 1)
+
+cpp_path.write_text(text)
+print('BrowserPanel GLES2 gl2ext external OES target: ON')
+print('BrowserPanel click bridge signature (u,v): FIXED')
