@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '1.1.0-browserpanel-v0.2.4'
+  APP_VERSION: '1.1.0-browserpanel-v0.2.5'
   APP_ID: 'com.bvultrex.quest3mrbrowserpanel'
   APP_LABEL: 'Quest3 MR Browser Panel'
 
@@ -97,6 +97,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v6
         with:
-          name: Quest3-MR-BrowserPanel-v0.2.4
+          name: Quest3-MR-BrowserPanel-v0.2.5
           path: dist/
           if-no-files-found: error

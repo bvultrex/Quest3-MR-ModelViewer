@@ -104,3 +104,21 @@ v0.2.4:
 - the visible reticle and WebView click use exactly the same filtered coordinates
 - reticle is slightly smaller to show the actual click target more precisely
 - keyboard, resize, WebView producer and Environment Depth paths are otherwise unchanged
+
+
+## v0.2.5 Browser Comfort
+
+Hardware feedback from v0.2.4:
+- joystick scrolling works well
+- precision aim works well
+- browser core, Quest keyboard, resize, placement and Environment Depth are all confirmed working
+
+v0.2.5:
+- removes the legacy GLB Viewer tablet UI from room rendering and interaction
+- keeps the proven Viewer renderer/depth plumbing underneath to avoid destabilizing BrowserPanel
+- adds Home button (Wikipedia)
+- adds Reset Window button: standard size and respawn in front of the current head pose
+- adds page Zoom -, 100%, +
+- adds persistent favorites with star toggle and a compact FAV strip
+- stores up to 8 favorites
+- keeps v0.2.4 pointer, scroll, keyboard, resize and Environment Depth paths unchanged

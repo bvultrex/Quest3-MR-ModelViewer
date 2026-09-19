@@ -1,0 +1,322 @@
+from pathlib import Path
+
+JAVA = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/java/com/oculus/xrpassthroughocclusion/QuestBrowserPanelBridge.java')
+j = JAVA.read_text()
+
+def rep(old, new, label):
+    global j
+    if old not in j:
+        raise SystemExit(f'BrowserPanel v0.2.5 Java anchor missing: {label}')
+    j = j.replace(old, new, 1)
+
+rep(
+'''import android.content.Context;
+''',
+'''import android.content.Context;
+import android.content.SharedPreferences;
+import android.net.Uri;
+''',
+'comfort imports 1')
+
+rep(
+'''import android.widget.LinearLayout;
+''',
+'''import android.widget.LinearLayout;
+import java.util.LinkedHashSet;
+import java.util.Set;
+''',
+'comfort imports 2')
+
+rep(
+'''    private static LinearLayout urlKeyboard;
+    private static Activity hostActivity;''',
+'''    private static LinearLayout urlKeyboard;
+    private static LinearLayout favoritesBar;
+    private static Button favoriteToggle;
+    private static Button favoritesToggle;
+    private static Activity hostActivity;''',
+'comfort fields')
+
+rep(
+'''    private static int surfaceHeight;
+
+    private QuestBrowserPanelBridge() {}
+''',
+'''    private static int surfaceHeight;
+    private static float zoomScale = 1.0f;
+    private static final String HOME_URL = "https://www.wikipedia.org/";
+    private static final String PREFS_NAME = "quest_browser_panel";
+    private static final String PREF_FAVORITES = "favorites";
+
+    private QuestBrowserPanelBridge() {}
+
+    private static native void nativeResetWindow();
+''',
+'comfort constants/native')
+
+helpers = r'''
+    private static SharedPreferences prefs() {
+        if (hostActivity == null) return null;
+        return hostActivity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+    }
+
+    private static LinkedHashSet<String> favorites() {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        SharedPreferences prefs = prefs();
+        if (prefs == null) return out;
+        Set<String> saved = prefs.getStringSet(PREF_FAVORITES, null);
+        if (saved != null) out.addAll(saved);
+        return out;
+    }
+
+    private static void saveFavorites(LinkedHashSet<String> values) {
+        SharedPreferences prefs = prefs();
+        if (prefs == null) return;
+        prefs.edit().putStringSet(PREF_FAVORITES, new LinkedHashSet<>(values)).apply();
+    }
+
+    private static String currentUrl() {
+        if (webView == null) return "";
+        String url = webView.getUrl();
+        return url == null ? "" : url;
+    }
+
+    private static String favoriteLabel(String url) {
+        try {
+            Uri uri = Uri.parse(url);
+            String host = uri.getHost();
+            if (host == null || host.isEmpty()) return "LINK";
+            if (host.startsWith("www.")) host = host.substring(4);
+            return host.length() > 18 ? host.substring(0, 18) : host;
+        } catch (Throwable ignored) {
+            return "LINK";
+        }
+    }
+
+    private static void refreshFavoriteState() {
+        if (favoriteToggle == null) return;
+        String url = currentUrl();
+        favoriteToggle.setText(!url.isEmpty() && favorites().contains(url) ? "★" : "☆");
+    }
+
+    private static void refreshFavoritesBar() {
+        if (favoritesBar == null) return;
+        favoritesBar.removeAllViews();
+        Context context = favoritesBar.getContext();
+        int shown = 0;
+        for (String url : favorites()) {
+            if (shown >= 8) break;
+            Button button = toolbarButton(context, favoriteLabel(url));
+            button.setTextSize(13f);
+            button.setOnClickListener(v -> {
+                if (webView != null) webView.loadUrl(url);
+            });
+            LinearLayout.LayoutParams params =
+                    new LinearLayout.LayoutParams(0, dp(context, 44), 1f);
+            params.setMargins(dp(context, 2), dp(context, 2), dp(context, 2), dp(context, 2));
+            favoritesBar.addView(button, params);
+            shown++;
+        }
+        if (favoritesToggle != null) {
+            favoritesToggle.setText(shown > 0 ? "FAV " + shown : "FAV");
+        }
+    }
+
+    private static void toggleFavorite() {
+        String url = currentUrl();
+        if (url.isEmpty()) return;
+        LinkedHashSet<String> values = favorites();
+        if (values.contains(url)) {
+            values.remove(url);
+        } else {
+            values.add(url);
+            while (values.size() > 8) {
+                String first = values.iterator().next();
+                values.remove(first);
+            }
+        }
+        saveFavorites(values);
+        refreshFavoriteState();
+        refreshFavoritesBar();
+    }
+
+    private static void goHome() {
+        if (webView != null) webView.loadUrl(HOME_URL);
+    }
+
+    private static void adjustZoom(float factor) {
+        if (webView == null) return;
+        float target = Math.max(0.55f, Math.min(2.00f, zoomScale * factor));
+        float actual = target / zoomScale;
+        try {
+            webView.zoomBy(actual);
+            zoomScale = target;
+        } catch (Throwable ignored) {}
+    }
+
+    private static void resetZoom() {
+        if (webView == null) return;
+        try {
+            if (Math.abs(zoomScale - 1.0f) > 0.001f) {
+                webView.zoomBy(1.0f / zoomScale);
+            }
+            zoomScale = 1.0f;
+        } catch (Throwable ignored) {}
+    }
+
+'''
+anchor = '    private static Button toolbarButton(Context context, String text) {'
+if helpers.strip() not in j:
+    if anchor not in j:
+        raise SystemExit('BrowserPanel v0.2.5 helper insertion anchor missing')
+    j = j.replace(anchor, helpers + anchor, 1)
+
+rep(
+'''            Button back = toolbarButton(context, "‹");
+            Button forward = toolbarButton(context, "›");
+            Button reload = toolbarButton(context, "↻");
+            Button go = toolbarButton(context, "GO");
+''',
+'''            Button home = toolbarButton(context, "⌂");
+            Button back = toolbarButton(context, "‹");
+            Button forward = toolbarButton(context, "›");
+            Button reload = toolbarButton(context, "↻");
+            Button go = toolbarButton(context, "GO");
+            Button zoomOut = toolbarButton(context, "−");
+            Button zoomReset = toolbarButton(context, "100");
+            Button zoomIn = toolbarButton(context, "+");
+            favoriteToggle = toolbarButton(context, "☆");
+            favoritesToggle = toolbarButton(context, "FAV");
+            Button resetWindow = toolbarButton(context, "RESET");
+''',
+'toolbar buttons')
+
+rep(
+'''            toolbar.addView(back, new LinearLayout.LayoutParams(buttonWidth, toolbarHeight));
+            toolbar.addView(forward, new LinearLayout.LayoutParams(buttonWidth, toolbarHeight));
+            toolbar.addView(reload, new LinearLayout.LayoutParams(buttonWidth, toolbarHeight));
+            toolbar.addView(addressBar, new LinearLayout.LayoutParams(0, toolbarHeight, 1f));
+            toolbar.addView(go, new LinearLayout.LayoutParams(dp(context, 64), toolbarHeight));
+''',
+'''            toolbar.addView(home, new LinearLayout.LayoutParams(buttonWidth, toolbarHeight));
+            toolbar.addView(back, new LinearLayout.LayoutParams(buttonWidth, toolbarHeight));
+            toolbar.addView(forward, new LinearLayout.LayoutParams(buttonWidth, toolbarHeight));
+            toolbar.addView(reload, new LinearLayout.LayoutParams(buttonWidth, toolbarHeight));
+            toolbar.addView(addressBar, new LinearLayout.LayoutParams(0, toolbarHeight, 1f));
+            toolbar.addView(go, new LinearLayout.LayoutParams(dp(context, 64), toolbarHeight));
+            toolbar.addView(zoomOut, new LinearLayout.LayoutParams(buttonWidth, toolbarHeight));
+            toolbar.addView(zoomReset, new LinearLayout.LayoutParams(dp(context, 62), toolbarHeight));
+            toolbar.addView(zoomIn, new LinearLayout.LayoutParams(buttonWidth, toolbarHeight));
+            toolbar.addView(favoriteToggle, new LinearLayout.LayoutParams(buttonWidth, toolbarHeight));
+            toolbar.addView(favoritesToggle, new LinearLayout.LayoutParams(dp(context, 70), toolbarHeight));
+            toolbar.addView(resetWindow, new LinearLayout.LayoutParams(dp(context, 82), toolbarHeight));
+''',
+'toolbar layout')
+
+rep(
+'''            back.setOnClickListener(v -> {
+                if (webView != null && webView.canGoBack()) webView.goBack();
+            });
+''',
+'''            home.setOnClickListener(v -> goHome());
+            back.setOnClickListener(v -> {
+                if (webView != null && webView.canGoBack()) webView.goBack();
+            });
+''',
+'home listener')
+
+rep(
+'''            reload.setOnClickListener(v -> {
+                if (webView != null) webView.reload();
+            });
+            go.setOnClickListener(v -> navigate());
+''',
+'''            reload.setOnClickListener(v -> {
+                if (webView != null) webView.reload();
+            });
+            go.setOnClickListener(v -> navigate());
+            zoomOut.setOnClickListener(v -> adjustZoom(0.90f));
+            zoomReset.setOnClickListener(v -> resetZoom());
+            zoomIn.setOnClickListener(v -> adjustZoom(1.10f));
+            favoriteToggle.setOnClickListener(v -> toggleFavorite());
+            favoritesToggle.setOnClickListener(v -> {
+                if (favoritesBar != null) {
+                    favoritesBar.setVisibility(
+                            favoritesBar.getVisibility() == View.VISIBLE
+                                ? View.GONE
+                                : View.VISIBLE);
+                }
+            });
+            resetWindow.setOnClickListener(v -> {
+                try {
+                    nativeResetWindow();
+                } catch (Throwable ignored) {}
+            });
+''',
+'comfort listeners')
+
+rep(
+'''                    if (addressBar != null && !addressBar.hasFocus()) {
+                        addressBar.setText(url);
+                    }
+''',
+'''                    if (addressBar != null && !addressBar.hasFocus()) {
+                        addressBar.setText(url);
+                    }
+                    refreshFavoriteState();
+                    refreshFavoritesBar();
+''',
+'favorite refresh on page finish')
+
+rep(
+'''            browserRoot.addView(toolbar, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dp(context, 68)));
+            browserRoot.addView(webView, new LinearLayout.LayoutParams(
+''',
+'''            favoritesBar = new LinearLayout(context);
+            favoritesBar.setOrientation(LinearLayout.HORIZONTAL);
+            favoritesBar.setBackgroundColor(Color.rgb(26, 29, 34));
+            favoritesBar.setPadding(dp(context, 6), dp(context, 2), dp(context, 6), dp(context, 2));
+            favoritesBar.setVisibility(View.GONE);
+
+            browserRoot.addView(toolbar, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dp(context, 68)));
+            browserRoot.addView(favoritesBar, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dp(context, 50)));
+            browserRoot.addView(webView, new LinearLayout.LayoutParams(
+''',
+'favorites bar layout')
+
+rep(
+'''            webView.loadUrl("https://www.wikipedia.org/");
+''',
+'''            refreshFavoritesBar();
+            webView.loadUrl(HOME_URL);
+''',
+'home load')
+
+rep(
+'''        webView = null;
+        addressBar = null;
+        urlKeyboard = null;
+        rootFrame = null;
+''',
+'''        webView = null;
+        addressBar = null;
+        urlKeyboard = null;
+        favoritesBar = null;
+        favoriteToggle = null;
+        favoritesToggle = null;
+        zoomScale = 1.0f;
+        rootFrame = null;
+''',
+'comfort cleanup')
+
+JAVA.write_text(j)
+print('BrowserPanel v0.2.5 HOME button: ON')
+print('BrowserPanel v0.2.5 native RESET WINDOW button: ON')
+print('BrowserPanel v0.2.5 page zoom minus/100/plus: ON')
+print('BrowserPanel v0.2.5 persistent favorites (max 8): ON')

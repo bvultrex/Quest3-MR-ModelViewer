@@ -61,6 +61,10 @@ cat BrowserPanel/v024/parts/patch_browser_panel_v024.*.pyfrag > /tmp/patch_brows
 python3 -m py_compile /tmp/patch_browser_panel_v024.py
 python3 /tmp/patch_browser_panel_v024.py
 
+cat BrowserPanel/v025/parts/patch_browser_panel_v025.*.pyfrag > /tmp/patch_browser_panel_v025.py
+python3 -m py_compile /tmp/patch_browser_panel_v025.py
+python3 /tmp/patch_browser_panel_v025.py
+
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
 INPUT="$SRC_DIR/XrPassthroughOcclusionInput.cpp"
@@ -108,3 +112,9 @@ grep -n 'QuestMrThumbstickForHand' "$INPUT"
 grep -n 'bridgeScroll' "$SRC"
 grep -n 'adaptive controller aim stabilization' /tmp/patch_browser_panel_v024.py
 grep -n 'public static void scroll' "$BROWSER_JAVA"
+
+grep -n 'legacy GLB Viewer tablet UI: OFF' /tmp/patch_browser_panel_v025.py
+grep -n 'nativeResetWindow' "$BROWSER_JAVA"
+grep -n 'favoriteToggle' "$BROWSER_JAVA"
+grep -n 'adjustZoom' "$BROWSER_JAVA"
+grep -n 'gQuestBrowserResetRequested' "$SRC"

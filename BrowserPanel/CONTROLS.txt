@@ -40,3 +40,12 @@ v0.2.4
 - Use that same controller's thumbstick vertically to scroll the page.
 - Small stick movement scrolls slowly; full deflection scrolls faster.
 - The browser reticle now uses adaptive stabilization for finer targeting.
+
+
+v0.2.5 BROWSER COMFORT
+- HOME: load Wikipedia.
+- RESET: restore default browser size and place it in front of your current view.
+- Zoom - / 100 / +: page zoom controls.
+- ☆ / ★: add/remove the current page as a favorite.
+- FAV: show/hide up to 8 saved favorite sites.
+- The old GLB Viewer tablet UI is no longer rendered or interactive.

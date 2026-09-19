@@ -1,0 +1,85 @@
+from pathlib import Path
+
+CPP = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = CPP.read_text()
+
+def rep(old, new, label):
+    global text
+    if old not in text:
+        raise SystemExit(f'BrowserPanel v0.2.5 C++ anchor missing: {label}')
+    text = text.replace(old, new, 1)
+
+# Thread-safe request from Android toolbar -> XR render thread.
+include_anchor = '#include <GLES2/gl2ext.h>\n'
+if '#include <atomic>' not in text:
+    if include_anchor not in text:
+        raise SystemExit('BrowserPanel v0.2.5 atomic include anchor missing')
+    text = text.replace(include_anchor, include_anchor + '#include <atomic>\n', 1)
+
+state_anchor = 'QuestBrowserPanelState gQuestBrowserPanel;\n'
+if 'gQuestBrowserResetRequested' not in text:
+    if state_anchor not in text:
+        raise SystemExit('BrowserPanel v0.2.5 reset state anchor missing')
+    text = text.replace(
+        state_anchor,
+        state_anchor + 'std::atomic<bool> gQuestBrowserResetRequested{false};\n',
+        1)
+
+reset_consume_anchor = '''#if defined(ANDROID)
+    if (gQuestBrowserPanel.initialized && !gQuestBrowserPanel.placed) {'''
+reset_consume = '''#if defined(ANDROID)
+    if (gQuestBrowserResetRequested.exchange(false)) {
+        gQuestBrowserPanel.widthMeters = QuestBrowserPanelState::kInitialWidthMeters;
+        gQuestBrowserPanel.heightMeters = QuestBrowserPanelState::kInitialHeightMeters;
+        gQuestBrowserPanel.grabbed = false;
+        gQuestBrowserPanel.grabHand = -1;
+        gQuestBrowserPanel.resizing = false;
+        gQuestBrowserPanel.resizeHand = -1;
+        gQuestBrowserPanel.resizeCorner = -1;
+        gQuestBrowserPanel.placed = false;
+    }
+
+    if (gQuestBrowserPanel.initialized && !gQuestBrowserPanel.placed) {'''
+rep(reset_consume_anchor, reset_consume, 'browser reset consume')
+
+# The legacy Viewer tablet remains compiled only as dormant renderer plumbing.
+# Park its pose far outside usable room space, never initialize it, and never draw it.
+rep(
+'''    static Matrix4f panelPose;''',
+'''    static Matrix4f panelPose = Matrix4f::Translation(10000.0f, 10000.0f, 10000.0f);''',
+'legacy panel parking')
+
+rep(
+'''    if (!panelInitialized) {
+        Matrix4f headPose = frameIn.View[0].Inverted();''',
+'''    if (false && !panelInitialized) {
+        Matrix4f headPose = frameIn.View[0].Inverted();''',
+'legacy panel initialization disable')
+
+rep(
+'''    if (panelInitialized) {
+        QuestMrBuildUiTextMesh();''',
+'''    if (false && panelInitialized) {
+        QuestMrBuildUiTextMesh();''',
+'legacy panel draw disable')
+
+jni_anchor = 'void Geometry::CreateBox() {'
+jni_code = r'''
+#if defined(ANDROID)
+extern "C" JNIEXPORT void JNICALL
+Java_com_oculus_xrpassthroughocclusion_QuestBrowserPanelBridge_nativeResetWindow(
+        JNIEnv*, jclass) {
+    gQuestBrowserResetRequested.store(true);
+}
+#endif
+
+'''
+if 'QuestBrowserPanelBridge_nativeResetWindow' not in text:
+    if jni_anchor not in text:
+        raise SystemExit('BrowserPanel v0.2.5 reset JNI anchor missing')
+    text = text.replace(jni_anchor, jni_code + jni_anchor, 1)
+
+CPP.write_text(text)
+print('BrowserPanel v0.2.5 legacy GLB Viewer tablet UI: OFF')
+print('BrowserPanel v0.2.5 GLB renderer/depth plumbing: PRESERVED')
+print('BrowserPanel v0.2.5 native reset-window request: ON')
