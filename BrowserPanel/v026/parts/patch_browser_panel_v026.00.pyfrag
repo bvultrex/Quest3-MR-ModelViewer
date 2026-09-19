@@ -1,0 +1,233 @@
+from pathlib import Path
+
+ROOT = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion')
+GL = ROOT / 'Src/XrPassthroughOcclusionGl.cpp'
+JAVA = ROOT / 'java/com/oculus/xrpassthroughocclusion/QuestBrowserPanelBridge.java'
+
+# ---------------------------------------------------------------------------
+# Native side: keep aim/filter/click logic, but make the Android surface own
+# visual cursor rendering. Send HOVER_EXIT once when the ray leaves.
+# ---------------------------------------------------------------------------
+text = GL.read_text()
+
+def rep_cpp(old, new, label):
+    global text
+    if old not in text:
+        raise SystemExit(f'BrowserPanel v0.2.6 C++ anchor missing: {label}')
+    text = text.replace(old, new, 1)
+
+rep_cpp(
+'''    static float browserAimFilteredV[2] = {0.5f, 0.5f};
+
+    if (browserPointerHand >= 0 && !gQuestBrowserPanel.resizing && !gQuestBrowserPanel.grabbed) {''',
+'''    static float browserAimFilteredV[2] = {0.5f, 0.5f};
+    static bool browserAndroidPointerVisible = false;
+
+    if (browserPointerHand >= 0 && !gQuestBrowserPanel.resizing && !gQuestBrowserPanel.grabbed) {''',
+'pointer visibility state')
+
+rep_cpp(
+'''        QuestBrowserSendPointer(
+            browserPointerU,
+            browserPointerV,
+            AMOTION_EVENT_ACTION_HOVER_MOVE);
+
+        // Scroll with the thumbstick''',
+'''        QuestBrowserSendPointer(
+            browserPointerU,
+            browserPointerV,
+            AMOTION_EVENT_ACTION_HOVER_MOVE);
+        browserAndroidPointerVisible = true;
+
+        // Scroll with the thumbstick''',
+'pointer visible latch')
+
+rep_cpp(
+'''    } else {
+        for (int hand = 0; hand < 2; ++hand) {
+            if (!handActive[hand]) {
+                browserAimFilterValid[hand] = false;
+            }
+        }
+    }
+''',
+'''    } else {
+        if (browserAndroidPointerVisible) {
+            QuestBrowserSendPointer(
+                -1.0f,
+                -1.0f,
+                AMOTION_EVENT_ACTION_HOVER_EXIT);
+            browserAndroidPointerVisible = false;
+        }
+        for (int hand = 0; hand < 2; ++hand) {
+            if (!handActive[hand]) {
+                browserAimFilterValid[hand] = false;
+            }
+        }
+    }
+''',
+'pointer exit')
+
+# Retire the world-space cube reticle. Resize corner L indicators remain native.
+rep_cpp(
+'''        if (browserPointerHand >= 0) {
+            const Matrix4f pointerMarker =''',
+'''        if (false && browserPointerHand >= 0) {
+            const Matrix4f pointerMarker =''',
+'legacy world reticle off')
+
+GL.write_text(text)
+
+# ---------------------------------------------------------------------------
+# Android side: the root itself draws a Quest-like cursor after ALL children.
+# It cannot intercept pointer events and cannot disappear behind the URL bar.
+# ---------------------------------------------------------------------------
+j = JAVA.read_text()
+
+def rep_java(old, new, label):
+    global j
+    if old not in j:
+        raise SystemExit(f'BrowserPanel v0.2.6 Java anchor missing: {label}')
+    j = j.replace(old, new, 1)
+
+rep_java(
+'''import android.graphics.Color;
+import android.graphics.SurfaceTexture;
+''',
+'''import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.SurfaceTexture;
+''',
+'canvas imports')
+
+rep_java(
+'''    private static FrameLayout rootFrame;
+''',
+'''    private static PointerFrameLayout rootFrame;
+''',
+'pointer root field')
+
+pointer_class = r'''
+    private static final class PointerFrameLayout extends FrameLayout {
+        private final Paint shadowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private float pointerX;
+        private float pointerY;
+        private boolean pointerVisible;
+
+        PointerFrameLayout(Context context) {
+            super(context);
+            setWillNotDraw(false);
+
+            shadowPaint.setStyle(Paint.Style.STROKE);
+            shadowPaint.setStrokeWidth(dp(context, 3));
+            shadowPaint.setColor(Color.argb(120, 0, 0, 0));
+
+            ringPaint.setStyle(Paint.Style.STROKE);
+            ringPaint.setStrokeWidth(dp(context, 1));
+            ringPaint.setColor(Color.WHITE);
+
+            dotPaint.setStyle(Paint.Style.FILL);
+            dotPaint.setColor(Color.rgb(105, 195, 255));
+        }
+
+        void setQuestPointer(float x, float y) {
+            pointerX = x;
+            pointerY = y;
+            pointerVisible = true;
+            invalidate();
+        }
+
+        void hideQuestPointer() {
+            if (!pointerVisible) return;
+            pointerVisible = false;
+            invalidate();
+        }
+
+        @Override
+        protected void dispatchDraw(Canvas canvas) {
+            super.dispatchDraw(canvas);
+            if (!pointerVisible) return;
+
+            final float radius = dp(getContext(), 6);
+            canvas.drawCircle(pointerX, pointerY, radius + dp(getContext(), 1), shadowPaint);
+            canvas.drawCircle(pointerX, pointerY, radius, ringPaint);
+            canvas.drawCircle(pointerX, pointerY, dp(getContext(), 2), dotPaint);
+        }
+    }
+
+'''
+class_anchor = '''    public static void start(
+'''
+if 'class PointerFrameLayout extends FrameLayout' not in j:
+    if class_anchor not in j:
+        raise SystemExit('BrowserPanel v0.2.6 PointerFrameLayout insertion anchor missing')
+    j = j.replace(class_anchor, pointer_class + class_anchor, 1)
+
+# Replace pointer() as one coherent unit.
+start = j.find('    public static void pointer(')
+end = j.find('    public static void click(', start)
+if start < 0 or end < 0:
+    raise SystemExit('BrowserPanel v0.2.6 pointer method bounds missing')
+
+pointer_method = r'''    public static void pointer(
+            final float normalizedX,
+            final float normalizedY,
+            final int action) {
+        MAIN.post(() -> {
+            if (rootFrame == null) return;
+
+            if (action == MotionEvent.ACTION_HOVER_EXIT ||
+                    normalizedX < 0f || normalizedY < 0f) {
+                rootFrame.hideQuestPointer();
+                return;
+            }
+
+            float nx = Math.max(0f, Math.min(1f, normalizedX));
+            float ny = Math.max(0f, Math.min(1f, normalizedY));
+            float width = rootFrame.getWidth() > 0 ? rootFrame.getWidth() : surfaceWidth;
+            float height = rootFrame.getHeight() > 0 ? rootFrame.getHeight() : surfaceHeight;
+            float x = nx * width;
+            float y = ny * height;
+
+            // Draw after every child in PointerFrameLayout.dispatchDraw().
+            // This is visual-only and never participates in Android hit testing.
+            rootFrame.setQuestPointer(x, y);
+
+            long now = SystemClock.uptimeMillis();
+            try {
+                if (action == MotionEvent.ACTION_HOVER_MOVE) {
+                    MotionEvent hover = MotionEvent.obtain(
+                            now, now, MotionEvent.ACTION_HOVER_MOVE, x, y, 0);
+                    hover.setSource(InputDevice.SOURCE_MOUSE);
+                    rootFrame.dispatchGenericMotionEvent(hover);
+                    hover.recycle();
+                    return;
+                }
+                MotionEvent event = MotionEvent.obtain(now, now, action, x, y, 0);
+                event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                rootFrame.dispatchTouchEvent(event);
+                event.recycle();
+            } catch (Throwable ignored) {}
+        });
+    }
+
+'''
+j = j[:start] + pointer_method + j[end:]
+
+rep_java(
+'''            rootFrame = new FrameLayout(context);
+''',
+'''            rootFrame = new PointerFrameLayout(context);
+''',
+'pointer root creation')
+
+JAVA.write_text(j)
+
+print('BrowserPanel v0.2.6 Android top-layer Quest-style pointer: ON')
+print('BrowserPanel v0.2.6 cursor is drawn after WebView + toolbar + URL bar: ON')
+print('BrowserPanel v0.2.6 visual cursor does not participate in hit testing: ON')
+print('BrowserPanel v0.2.6 legacy world-space cube pointer: OFF')
+print('BrowserPanel v0.2.6 native resize corner indicators: UNCHANGED')

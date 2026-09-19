@@ -122,3 +122,21 @@ v0.2.5:
 - adds persistent favorites with star toggle and a compact FAV strip
 - stores up to 8 favorites
 - keeps v0.2.4 pointer, scroll, keyboard, resize and Environment Depth paths unchanged
+
+
+## v0.2.6 Quest-style pointer surface
+
+Hardware feedback from v0.2.5:
+- browser content interaction works
+- the visual pointer disappears over the URL bar / browser chrome
+
+v0.2.6:
+- retires the world-space cube reticle used as the BrowserPanel cursor
+- keeps the proven OpenXR aim pose, adaptive stabilization and click coordinates
+- draws a Quest-style ring/dot cursor directly in the Android BrowserPanel surface
+- cursor is drawn by the root layout after WebView, URL bar, favorites and toolbar
+- visual cursor never participates in Android hit testing
+- sends an explicit hover-exit when the controller ray leaves the browser
+- resize corner indicators remain native and unchanged
+
+Meta managed pointer systems live in higher-level Interaction SDK / IWSDK stacks; this native OpenXR project keeps its lightweight input path rather than migrating frameworks only for cursor visuals.

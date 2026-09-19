@@ -49,3 +49,9 @@ v0.2.5 BROWSER COMFORT
 - ☆ / ★: add/remove the current page as a favorite.
 - FAV: show/hide up to 8 saved favorite sites.
 - The old GLB Viewer tablet UI is no longer rendered or interactive.
+
+
+v0.2.6 POINTER
+- The browser cursor is now composited inside the BrowserPanel itself.
+- It remains visible over webpage content, toolbar, favorites and the URL field.
+- Aim stabilization, clicks, joystick scrolling and resize behavior are unchanged.

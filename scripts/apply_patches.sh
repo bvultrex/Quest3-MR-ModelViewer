@@ -65,6 +65,10 @@ cat BrowserPanel/v025/parts/patch_browser_panel_v025.*.pyfrag > /tmp/patch_brows
 python3 -m py_compile /tmp/patch_browser_panel_v025.py
 python3 /tmp/patch_browser_panel_v025.py
 
+cat BrowserPanel/v026/parts/patch_browser_panel_v026.*.pyfrag > /tmp/patch_browser_panel_v026.py
+python3 -m py_compile /tmp/patch_browser_panel_v026.py
+python3 /tmp/patch_browser_panel_v026.py
+
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
 INPUT="$SRC_DIR/XrPassthroughOcclusionInput.cpp"
@@ -118,3 +122,8 @@ grep -n 'nativeResetWindow' "$BROWSER_JAVA"
 grep -n 'favoriteToggle' "$BROWSER_JAVA"
 grep -n 'adjustZoom' "$BROWSER_JAVA"
 grep -n 'gQuestBrowserResetRequested' "$SRC"
+
+grep -n 'PointerFrameLayout' "$BROWSER_JAVA"
+grep -n 'setQuestPointer' "$BROWSER_JAVA"
+grep -n 'browserAndroidPointerVisible' "$SRC"
+grep -n 'legacy world-space cube pointer: OFF' /tmp/patch_browser_panel_v026.py
