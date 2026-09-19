@@ -57,6 +57,10 @@ cat BrowserPanel/v023/parts/patch_browser_panel_v023.*.pyfrag > /tmp/patch_brows
 python3 -m py_compile /tmp/patch_browser_panel_v023.py
 python3 /tmp/patch_browser_panel_v023.py
 
+cat BrowserPanel/v024/parts/patch_browser_panel_v024.*.pyfrag > /tmp/patch_browser_panel_v024.py
+python3 -m py_compile /tmp/patch_browser_panel_v024.py
+python3 /tmp/patch_browser_panel_v024.py
+
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
 INPUT="$SRC_DIR/XrPassthroughOcclusionInput.cpp"
@@ -98,3 +102,9 @@ grep -n 'primary-Activity hidden IME proxy' /tmp/patch_browser_panel_v023.py
 grep -n 'installImeProxy' "$BROWSER_JAVA"
 grep -n 'imeProxy' "$BROWSER_JAVA"
 grep -n 'beginWebInput' "$BROWSER_JAVA"
+
+grep -n 'thumbstickAction' "$INPUT"
+grep -n 'QuestMrThumbstickForHand' "$INPUT"
+grep -n 'bridgeScroll' "$SRC"
+grep -n 'adaptive controller aim stabilization' /tmp/patch_browser_panel_v024.py
+grep -n 'public static void scroll' "$BROWSER_JAVA"

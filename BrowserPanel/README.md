@@ -86,3 +86,21 @@ v0.2.3:
 - edits are mirrored back into the URL bar or active web element
 - number, tel, email, URL and password HTML input types are mapped to appropriate Android input types
 - the offscreen Presentation EditText no longer owns the system IME
+
+
+## v0.2.4 joystick scroll + precision aim
+
+Hardware feedback from v0.2.3:
+- Quest system keyboard now works
+- resize and outer-corner indicators work
+- pages cannot be scrolled from the controller
+- controller aim ray is too jittery / imprecise for comfortable browser use
+
+v0.2.4:
+- adds a native per-hand OpenXR thumbstick VECTOR2F action
+- the thumbstick on the controller currently aiming at the browser scrolls vertically
+- 18% deadzone plus smooth progressive scroll speed for fine and fast movement
+- adds adaptive UV stabilization to damp small controller jitter without making large movements sluggish
+- the visible reticle and WebView click use exactly the same filtered coordinates
+- reticle is slightly smaller to show the actual click target more precisely
+- keyboard, resize, WebView producer and Environment Depth paths are otherwise unchanged

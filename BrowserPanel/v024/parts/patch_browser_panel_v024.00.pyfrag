@@ -1,0 +1,116 @@
+from pathlib import Path
+
+SRC = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src')
+INPUT = SRC / 'XrPassthroughOcclusionInput.cpp'
+GL = SRC / 'XrPassthroughOcclusionGl.cpp'
+
+text = INPUT.read_text()
+
+def rep(old, new, label):
+    global text
+    if old not in text:
+        raise SystemExit(f'BrowserPanel v0.2.4 input anchor missing: {label}')
+    text = text.replace(old, new, 1)
+
+rep(
+'''XrAction squeezeAction = XR_NULL_HANDLE;
+XrPath leftHandPath = XR_NULL_PATH;''',
+'''XrAction squeezeAction = XR_NULL_HANDLE;
+XrAction thumbstickAction = XR_NULL_HANDLE;
+XrPath leftHandPath = XR_NULL_PATH;''',
+'thumbstick action declaration')
+
+vector_helper = '''XrActionStateVector2f GetActionStateVector2fForPath(
+    App& app, XrAction action, XrPath subactionPath) {
+    XrActionStateGetInfo getInfo = {XR_TYPE_ACTION_STATE_GET_INFO};
+    getInfo.action = action;
+    getInfo.subactionPath = subactionPath;
+
+    XrActionStateVector2f state = {XR_TYPE_ACTION_STATE_VECTOR2F};
+    OXR(xrGetActionStateVector2f(app.Session, &getInfo, &state));
+    return state;
+}
+
+'''
+anchor = '''bool ActionPoseIsActive(App& app, XrAction action, XrPath subactionPath) {'''
+if 'GetActionStateVector2fForPath' not in text:
+    if anchor not in text:
+        raise SystemExit('BrowserPanel v0.2.4 vector helper anchor missing')
+    text = text.replace(anchor, vector_helper + anchor, 1)
+
+rep(
+'''    squeezeAction = CreateAction(
+        runningActionSet, XR_ACTION_TYPE_FLOAT_INPUT, "squeeze", "Squeeze", 2, handSubactionPaths);''',
+'''    squeezeAction = CreateAction(
+        runningActionSet, XR_ACTION_TYPE_FLOAT_INPUT, "squeeze", "Squeeze", 2, handSubactionPaths);
+    thumbstickAction = CreateAction(
+        runningActionSet,
+        XR_ACTION_TYPE_VECTOR2F_INPUT,
+        "thumbstick",
+        "Thumbstick",
+        2,
+        handSubactionPaths);''',
+'thumbstick action create')
+
+rep(
+'''        bindings.push_back(
+            ActionSuggestedBinding(app, squeezeAction, "/user/hand/right/input/squeeze/value"));''',
+'''        bindings.push_back(
+            ActionSuggestedBinding(app, squeezeAction, "/user/hand/right/input/squeeze/value"));
+        bindings.push_back(
+            ActionSuggestedBinding(app, thumbstickAction, "/user/hand/left/input/thumbstick"));
+        bindings.push_back(
+            ActionSuggestedBinding(app, thumbstickAction, "/user/hand/right/input/thumbstick"));''',
+'thumbstick bindings')
+
+rep(
+'''XrActionStateFloat leftGripState = {XR_TYPE_ACTION_STATE_FLOAT};
+XrActionStateFloat rightGripState = {XR_TYPE_ACTION_STATE_FLOAT};
+
+extern "C" bool QuestMrTriggerDown() {''',
+'''XrActionStateFloat leftGripState = {XR_TYPE_ACTION_STATE_FLOAT};
+XrActionStateFloat rightGripState = {XR_TYPE_ACTION_STATE_FLOAT};
+XrActionStateVector2f leftThumbstickState = {XR_TYPE_ACTION_STATE_VECTOR2F};
+XrActionStateVector2f rightThumbstickState = {XR_TYPE_ACTION_STATE_VECTOR2F};
+
+extern "C" void QuestMrThumbstickForHand(int hand, float* x, float* y) {
+    const XrActionStateVector2f& state =
+        hand == 0 ? leftThumbstickState : rightThumbstickState;
+    const bool active = state.isActive != XR_FALSE;
+    if (x != nullptr) {
+        *x = active ? state.currentState.x : 0.0f;
+    }
+    if (y != nullptr) {
+        *y = active ? state.currentState.y : 0.0f;
+    }
+}
+
+extern "C" bool QuestMrTriggerDown() {''',
+'thumbstick state bridge')
+
+rep(
+'''    leftGripState = GetActionStateFloatForPath(app, squeezeAction, leftHandPath);
+    rightGripState = GetActionStateFloatForPath(app, squeezeAction, rightHandPath);''',
+'''    leftGripState = GetActionStateFloatForPath(app, squeezeAction, leftHandPath);
+    rightGripState = GetActionStateFloatForPath(app, squeezeAction, rightHandPath);
+    leftThumbstickState =
+        GetActionStateVector2fForPath(app, thumbstickAction, leftHandPath);
+    rightThumbstickState =
+        GetActionStateVector2fForPath(app, thumbstickAction, rightHandPath);''',
+'thumbstick sync')
+
+INPUT.write_text(text)
+
+gl = GL.read_text()
+old_extern = '''extern "C" bool QuestMrRightControllerActiveBridge();
+'''
+new_extern = '''extern "C" bool QuestMrRightControllerActiveBridge();
+extern "C" void QuestMrThumbstickForHand(int hand, float* x, float* y);
+'''
+if old_extern not in gl:
+    raise SystemExit('BrowserPanel v0.2.4 renderer thumbstick extern anchor missing')
+gl = gl.replace(old_extern, new_extern, 1)
+GL.write_text(gl)
+
+print('BrowserPanel v0.2.4 per-hand thumbstick OpenXR action: ON')
+print('BrowserPanel v0.2.4 pointing-hand joystick bridge: ON')

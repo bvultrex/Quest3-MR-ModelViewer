@@ -33,3 +33,10 @@ v0.2.1 HOTFIX
 - Tapping the URL field opens the built-in QWERTZ URL keyboard inside the panel.
 - The custom keyboard does not depend on the Quest system keyboard.
 - GO navigates and hides the custom keyboard. HIDE closes it without navigating.
+
+
+v0.2.4
+- Aim either controller at the browser.
+- Use that same controller's thumbstick vertically to scroll the page.
+- Small stick movement scrolls slowly; full deflection scrolls faster.
+- The browser reticle now uses adaptive stabilization for finer targeting.
