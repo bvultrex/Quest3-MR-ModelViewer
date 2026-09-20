@@ -1,0 +1,23 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.0.3: user-requested texture headroom increase for texture-heavy GLBs.
+# Keep geometry/file/safe-boot limits unchanged, but raise both the texture-only
+# cap and the aggregate GPU estimate so the 500 MiB texture cap is effective.
+replacements = {
+    'constexpr uint64_t kMaxTextureGpuBytes = 160ULL * 1024ULL * 1024ULL;':
+        'constexpr uint64_t kMaxTextureGpuBytes = 500ULL * 1024ULL * 1024ULL;',
+    'constexpr uint64_t kMaxEstimatedGpuBytes = 256ULL * 1024ULL * 1024ULL;':
+        'constexpr uint64_t kMaxEstimatedGpuBytes = 640ULL * 1024ULL * 1024ULL;',
+}
+for old, new in replacements.items():
+    if old not in text:
+        raise SystemExit('v1.0.3 memory-budget anchor missing: ' + old)
+    text = text.replace(old, new, 1)
+
+cpp.write_text(text)
+print('v1.0.3 texture budget: 500 MiB mipmapped total')
+print('v1.0.3 aggregate GPU estimate budget: 640 MiB')
+print('v1.0.3 geometry/file/safe-boot guards preserved')
