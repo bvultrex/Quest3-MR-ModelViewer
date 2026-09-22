@@ -1,0 +1,120 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+old_pointer = r'''    // Either controller may point at the UI. Prefer the one closest to the
+    // tablet plane; the hand currently grabbing the tablet is excluded.
+    float bestPointerDepth = 1000.0f;
+    for (int hand = 0; hand < 2; ++hand) {
+        if (!handActive[hand] || (panelGrabbed && hand == panelGrabHand)) {
+            continue;
+        }
+        const Matrix4f candidateTip =
+            handPose[hand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+        float candidateX = 0.0f;
+        float candidateY = 0.0f;
+        float candidateZ = 0.0f;
+        panelLocalPoint(candidateTip, candidateX, candidateY, candidateZ);
+        const float candidateDepth = std::abs(candidateZ);
+        if (candidateDepth < 0.060f &&
+            std::abs(candidateX) < 0.170f &&
+            candidateY > -0.310f && candidateY < 0.210f &&
+            candidateDepth < bestPointerDepth) {
+            bestPointerDepth = candidateDepth;
+            pointerTipMatrix = candidateTip;
+            pointerHand = hand;
+            havePointer = true;
+        }
+    }
+
+    const bool uiTriggerDown =
+'''
+
+new_pointer = r'''    // QuestMR v1.1.1: true controller ray -> tablet plane cursor.
+    // The old implementation used the controller tip itself as the cursor and
+    // only became active within 6 cm of the tablet. In stereo that made the
+    // marker visibly float in front of the panel and made navigation awkward.
+    //
+    // Intersect each controller's -Z pointing ray with the tablet's local Z=0
+    // plane. The visible marker is then rebuilt in tablet space so it stays
+    // glued to the panel even while the panel is translated or rotated.
+    float bestPointerDistance = 1000.0f;
+    for (int hand = 0; hand < 2; ++hand) {
+        if (!handActive[hand] || (panelGrabbed && hand == panelGrabHand)) {
+            continue;
+        }
+
+        const Matrix4f rayTip =
+            handPose[hand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+        const float rayOriginX = rayTip.M[0][3];
+        const float rayOriginY = rayTip.M[1][3];
+        const float rayOriginZ = rayTip.M[2][3];
+
+        // Controller forward is local -Z.
+        const float rayDirX = -handPose[hand].M[0][2];
+        const float rayDirY = -handPose[hand].M[1][2];
+        const float rayDirZ = -handPose[hand].M[2][2];
+
+        // Tablet plane normal is its local +Z axis.
+        const float planeNormalX = panelPose.M[0][2];
+        const float planeNormalY = panelPose.M[1][2];
+        const float planeNormalZ = panelPose.M[2][2];
+        const float rayDenom =
+            rayDirX * planeNormalX +
+            rayDirY * planeNormalY +
+            rayDirZ * planeNormalZ;
+        if (std::abs(rayDenom) < 0.0001f) {
+            continue;
+        }
+
+        const float toPlaneX = panelPose.M[0][3] - rayOriginX;
+        const float toPlaneY = panelPose.M[1][3] - rayOriginY;
+        const float toPlaneZ = panelPose.M[2][3] - rayOriginZ;
+        const float rayDistance =
+            (toPlaneX * planeNormalX +
+             toPlaneY * planeNormalY +
+             toPlaneZ * planeNormalZ) /
+            rayDenom;
+
+        // Forward hits only, with a generous but finite MR interaction range.
+        if (rayDistance < 0.025f || rayDistance > 3.0f) {
+            continue;
+        }
+
+        const Matrix4f worldHit = Matrix4f::Translation(
+            rayOriginX + rayDirX * rayDistance,
+            rayOriginY + rayDirY * rayDistance,
+            rayOriginZ + rayDirZ * rayDistance);
+
+        float candidateX = 0.0f;
+        float candidateY = 0.0f;
+        float candidateZ = 0.0f;
+        panelLocalPoint(worldHit, candidateX, candidateY, candidateZ);
+
+        if (std::abs(candidateX) < 0.170f &&
+            candidateY > -0.310f && candidateY < 0.210f &&
+            rayDistance < bestPointerDistance) {
+            bestPointerDistance = rayDistance;
+
+            // Keep the cursor effectively on the control surface. It inherits
+            // the tablet orientation instead of the controller orientation.
+            pointerTipMatrix =
+                panelPose * Matrix4f::Translation(candidateX, candidateY, -0.0035f);
+            pointerHand = hand;
+            havePointer = true;
+        }
+    }
+
+    const bool uiTriggerDown =
+'''
+
+if old_pointer not in text:
+    raise SystemExit('v1.1.1 pointer selection anchor not found')
+
+text = text.replace(old_pointer, new_pointer, 1)
+
+cpp.write_text(text)
+print('v1.1.1 controller ray -> tablet plane pointer: ON')
+print('v1.1.1 panel-surface cursor alignment: ON')
+print('v1.1.1 UI ray interaction range: 3.0 m')
