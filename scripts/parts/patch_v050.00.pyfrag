@@ -6,7 +6,7 @@ text = cpp.read_text()
 # v1.1.0 render-quality pass:
 # - preserve every triangle primitive instead of dropping extra-material geometry
 # - render per-primitive glTF materials
-# - decode BaseColor as sRGB, keep normal/MR maps linear
+# - preserve the existing BaseColor sRGB / data-texture linear color-space path
 # - enable anisotropic filtering when supported
 # - use inverse-transpose node normal transforms
 # - repair winding for negative-determinant node transforms
@@ -72,38 +72,9 @@ if destroy_anchor not in text:
 text = text.replace(destroy_anchor, destroy_replacement, 1)
 
 # ---------------------------------------------------------------------------
-# 2) Correct texture color space and filtering.
+# 2) Improve texture filtering. BaseColor sRGB decode is already provided by
+#    patch_v037, so v1.1 deliberately leaves that accepted color-space path intact.
 # ---------------------------------------------------------------------------
-sig_old = '''bool QuestMrUploadTextureView(
-    const cgltf_texture_view& textureView,
-    GLuint& outTexture,
-    const char* label) {'''
-sig_new = '''bool QuestMrUploadTextureView(
-    const cgltf_texture_view& textureView,
-    GLuint& outTexture,
-    const char* label,
-    bool srgb) {'''
-if sig_old not in text:
-    raise SystemExit('v1.1 texture helper signature anchor missing')
-text = text.replace(sig_old, sig_new, 1)
-
-format_candidates = [
-    '''        GL_RGBA8,
-        width,''',
-    '''        GL_SRGB8_ALPHA8,
-        width,''',
-]
-format_new = '''        srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8,
-        width,'''
-format_replaced = False
-for format_old in format_candidates:
-    if format_old in text:
-        text = text.replace(format_old, format_new, 1)
-        format_replaced = True
-        break
-if not format_replaced:
-    raise SystemExit('v1.1 texture internal-format anchor missing')
-
 filter_anchor = '''    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter));
     GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
     GL(glGenerateMipmap(GL_TEXTURE_2D));'''
