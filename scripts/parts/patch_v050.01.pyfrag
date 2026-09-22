@@ -38,13 +38,11 @@ material_upload = r'''    QuestMrDestroyImportedMesh();
             target.hasBaseColorTexture = QuestMrUploadTextureView(
                 pbr.base_color_texture,
                 target.baseColorTexture,
-                "baseColor",
-                true);
+                "baseColor");
             target.hasMetallicRoughnessTexture = QuestMrUploadTextureView(
                 pbr.metallic_roughness_texture,
                 target.metallicRoughnessTexture,
-                "metallicRoughness",
-                false);
+                "metallicRoughness");
         }
 
         target.normalScale = std::isfinite(source.normal_texture.scale)
@@ -53,8 +51,7 @@ material_upload = r'''    QuestMrDestroyImportedMesh();
         target.hasNormalTexture = QuestMrUploadTextureView(
             source.normal_texture,
             target.normalTexture,
-            "normal",
-            false);
+            "normal");
 
         target.metallicFactor = std::max(0.0f, std::min(1.0f, target.metallicFactor));
         target.roughnessFactor = std::max(0.04f, std::min(1.0f, target.roughnessFactor));
