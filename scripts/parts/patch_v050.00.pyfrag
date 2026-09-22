@@ -1,0 +1,225 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.1.0 render-quality pass:
+# - preserve every triangle primitive instead of dropping extra-material geometry
+# - render per-primitive glTF materials
+# - decode BaseColor as sRGB, keep normal/MR maps linear
+# - enable anisotropic filtering when supported
+# - use inverse-transpose node normal transforms
+# - repair winding for negative-determinant node transforms
+
+# ---------------------------------------------------------------------------
+# 1) Per-material draw metadata.
+# ---------------------------------------------------------------------------
+struct_anchor = 'struct QuestMrImportedMesh {'
+if 'struct QuestMrImportedMaterial {' not in text:
+    if struct_anchor not in text:
+        raise SystemExit('v1.1 material-struct anchor missing')
+    material_structs = r'''struct QuestMrImportedMaterial {
+    GLuint baseColorTexture = 0;
+    GLuint normalTexture = 0;
+    GLuint metallicRoughnessTexture = 0;
+    float metallicFactor = 1.0f;
+    float roughnessFactor = 1.0f;
+    float normalScale = 1.0f;
+    bool hasBaseColorTexture = false;
+    bool hasNormalTexture = false;
+    bool hasMetallicRoughnessTexture = false;
+};
+
+struct QuestMrImportedDraw {
+    GLsizei indexCount = 0;
+    size_t indexOffsetBytes = 0;
+    int materialSlot = 0;
+};
+
+'''
+    text = text.replace(struct_anchor, material_structs + struct_anchor, 1)
+
+mesh_anchor = '    bool hasMetallicRoughnessTexture = false;\n    bool loaded = false;'
+mesh_replacement = '''    bool hasMetallicRoughnessTexture = false;
+    std::vector<QuestMrImportedMaterial> materials;
+    std::vector<QuestMrImportedDraw> draws;
+    bool loaded = false;'''
+if mesh_anchor not in text:
+    raise SystemExit('v1.1 imported-mesh vector anchor missing')
+text = text.replace(mesh_anchor, mesh_replacement, 1)
+
+destroy_anchor = '''    if (gQuestMrImportedMesh.metallicRoughnessTexture != 0) {
+        GL(glDeleteTextures(1, &gQuestMrImportedMesh.metallicRoughnessTexture));
+    }
+    const long long stamp = gQuestMrImportedMesh.loadedStamp;'''
+destroy_replacement = '''    if (gQuestMrImportedMesh.metallicRoughnessTexture != 0) {
+        GL(glDeleteTextures(1, &gQuestMrImportedMesh.metallicRoughnessTexture));
+    }
+    for (auto& material : gQuestMrImportedMesh.materials) {
+        if (material.baseColorTexture != 0) {
+            GL(glDeleteTextures(1, &material.baseColorTexture));
+        }
+        if (material.normalTexture != 0) {
+            GL(glDeleteTextures(1, &material.normalTexture));
+        }
+        if (material.metallicRoughnessTexture != 0) {
+            GL(glDeleteTextures(1, &material.metallicRoughnessTexture));
+        }
+    }
+    const long long stamp = gQuestMrImportedMesh.loadedStamp;'''
+if destroy_anchor not in text:
+    raise SystemExit('v1.1 material cleanup anchor missing')
+text = text.replace(destroy_anchor, destroy_replacement, 1)
+
+# ---------------------------------------------------------------------------
+# 2) Correct texture color space and filtering.
+# ---------------------------------------------------------------------------
+sig_old = '''bool QuestMrUploadTextureView(
+    const cgltf_texture_view& textureView,
+    GLuint& outTexture,
+    const char* label) {'''
+sig_new = '''bool QuestMrUploadTextureView(
+    const cgltf_texture_view& textureView,
+    GLuint& outTexture,
+    const char* label,
+    bool srgb) {'''
+if sig_old not in text:
+    raise SystemExit('v1.1 texture helper signature anchor missing')
+text = text.replace(sig_old, sig_new, 1)
+
+format_old = '''        GL_RGBA8,
+        width,'''
+format_new = '''        srgb ? GL_SRGB8_ALPHA8 : GL_RGBA8,
+        width,'''
+if format_old not in text:
+    raise SystemExit('v1.1 texture internal-format anchor missing')
+text = text.replace(format_old, format_new, 1)
+
+filter_anchor = '''    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter));
+    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
+    GL(glGenerateMipmap(GL_TEXTURE_2D));'''
+filter_replacement = '''    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, magFilter));
+    GL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
+    GL(glGenerateMipmap(GL_TEXTURE_2D));
+#if defined(GL_TEXTURE_MAX_ANISOTROPY_EXT) && defined(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT)
+    const char* extensions = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
+    if (extensions != nullptr &&
+        std::string(extensions).find("GL_EXT_texture_filter_anisotropic") != std::string::npos) {
+        GLfloat maxAnisotropy = 1.0f;
+        GL(glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &maxAnisotropy));
+        const GLfloat requestedAnisotropy = std::min(8.0f, std::max(1.0f, maxAnisotropy));
+        GL(glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, requestedAnisotropy));
+    }
+#endif'''
+if filter_anchor not in text:
+    raise SystemExit('v1.1 texture filtering anchor missing')
+text = text.replace(filter_anchor, filter_replacement, 1)
+
+# ---------------------------------------------------------------------------
+# 3) Keep all material primitives and preserve per-draw material identity.
+# ---------------------------------------------------------------------------
+state_old = '''    size_t acceptedPrimitives = 0;
+    size_t skippedPrimitives = 0;
+    const cgltf_material* selectedMaterial = nullptr;
+    bool materialChosen = false;'''
+state_new = '''    size_t acceptedPrimitives = 0;
+    size_t skippedPrimitives = 0;
+    std::vector<QuestMrImportedDraw> drawRanges;
+    drawRanges.reserve(64);'''
+if state_old not in text:
+    raise SystemExit('v1.1 loader material-state anchor missing')
+text = text.replace(state_old, state_new, 1)
+
+skip_old = '''            if (materialChosen && primitive.material != selectedMaterial) {
+                ALOGE("QuestMR: v0.3.6 skips extra materials; one material per import is supported");
+                ++skippedPrimitives;
+                continue;
+            }
+'''
+if skip_old not in text:
+    raise SystemExit('v1.1 extra-material skip anchor missing')
+text = text.replace(skip_old, '', 1)
+
+world_anchor = '''        if (!finiteWorld) {
+            ALOGE("QuestMR: skipping node with non-finite transform");
+            skippedPrimitives += node->mesh->primitives_count;
+            continue;
+        }
+
+        for (cgltf_size primitiveIndex = 0;'''
+world_replacement = r'''        if (!finiteWorld) {
+            ALOGE("QuestMR: skipping node with non-finite transform");
+            skippedPrimitives += node->mesh->primitives_count;
+            continue;
+        }
+
+        const float a = world[0], b = world[4], c = world[8];
+        const float d = world[1], e = world[5], f = world[9];
+        const float g = world[2], h = world[6], i = world[10];
+        const float det =
+            a * (e * i - f * h) -
+            b * (d * i - f * g) +
+            c * (d * h - e * g);
+        float normalMatrix[9] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+        if (std::isfinite(det) && std::abs(det) > 0.00000001f) {
+            const float invDet = 1.0f / det;
+            normalMatrix[0] =  (e * i - f * h) * invDet;
+            normalMatrix[1] =  (f * g - d * i) * invDet;
+            normalMatrix[2] =  (d * h - e * g) * invDet;
+            normalMatrix[3] =  (c * h - b * i) * invDet;
+            normalMatrix[4] =  (a * i - c * g) * invDet;
+            normalMatrix[5] =  (b * g - a * h) * invDet;
+            normalMatrix[6] =  (b * f - c * e) * invDet;
+            normalMatrix[7] =  (c * d - a * f) * invDet;
+            normalMatrix[8] =  (a * e - b * d) * invDet;
+        }
+        const bool flipWinding = std::isfinite(det) && det < 0.0f;
+
+        for (cgltf_size primitiveIndex = 0;'''
+if world_anchor not in text:
+    raise SystemExit('v1.1 node-transform anchor missing')
+text = text.replace(world_anchor, world_replacement, 1)
+
+normal_old = '''                    const float nx = world[0] * n[0] + world[4] * n[1] + world[8] * n[2];
+                    const float ny = world[1] * n[0] + world[5] * n[1] + world[9] * n[2];
+                    const float nz = world[2] * n[0] + world[6] * n[1] + world[10] * n[2];'''
+normal_new = '''                    const float nx =
+                        normalMatrix[0] * n[0] + normalMatrix[1] * n[1] + normalMatrix[2] * n[2];
+                    const float ny =
+                        normalMatrix[3] * n[0] + normalMatrix[4] * n[1] + normalMatrix[5] * n[2];
+                    const float nz =
+                        normalMatrix[6] * n[0] + normalMatrix[7] * n[1] + normalMatrix[8] * n[2];'''
+if normal_old not in text:
+    raise SystemExit('v1.1 normal-transform anchor missing')
+text = text.replace(normal_old, normal_new, 1)
+
+chosen_old = '''            if (!materialChosen) {
+                selectedMaterial = primitive.material;
+                materialChosen = true;
+            }
+
+            for (size_t vIndex = vertexStart;'''
+chosen_new = '''            if (flipWinding) {
+                for (size_t triangle = indexStart; triangle + 2 < indices.size(); triangle += 3) {
+                    std::swap(indices[triangle + 1], indices[triangle + 2]);
+                }
+            }
+
+            int materialSlot = 0;
+            if (primitive.material != nullptr && data->materials != nullptr) {
+                const auto materialIndex = primitive.material - data->materials;
+                if (materialIndex >= 0 &&
+                    static_cast<cgltf_size>(materialIndex) < data->materials_count) {
+                    materialSlot = static_cast<int>(materialIndex) + 1;
+                }
+            }
+            QuestMrImportedDraw draw{};
+            draw.indexCount = static_cast<GLsizei>(primitiveIndexCount);
+            draw.indexOffsetBytes = indexStart * sizeof(uint32_t);
+            draw.materialSlot = materialSlot;
+            drawRanges.push_back(draw);
+
+            for (size_t vIndex = vertexStart;'''
+if chosen_old not in text:
+    raise SystemExit('v1.1 draw-range anchor missing')
+text = text.replace(chosen_old, chosen_new, 1)
