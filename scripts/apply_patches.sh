@@ -38,6 +38,7 @@ run_fragmented_patch patch_v046
 run_fragmented_patch patch_v047
 run_fragmented_patch patch_v048
 run_fragmented_patch patch_v049
+run_fragmented_patch patch_v050
 
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
@@ -74,6 +75,10 @@ grep -n 'modelScaleSlider \* 9.75f' "$SRC"
 grep -n 'modelScaleSlider = 0.0769231f' "$SRC"
 grep -n 'std::min(2.25f' "$SRC"
 grep -n 'safe boot ignored persisted GLB' "$SRC"
+grep -n 'std::vector<QuestMrImportedMaterial> materials' "$SRC"
+grep -n 'QuestMR: v1.1 GLB primitives=' "$SRC"
+grep -n 'GL_SRGB8_ALPHA8' "$SRC"
+grep -n 'GL_TEXTURE_MAX_ANISOTROPY_EXT' "$SRC"
 grep -n 'peak-memory guard' "$SRC"
 grep -n 'returnToViewer' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
 grep -n 'QUESTMR_V039_VISIBLE_PICKER' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
