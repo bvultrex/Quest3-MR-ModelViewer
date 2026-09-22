@@ -3,33 +3,19 @@ from pathlib import Path
 cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
 text = cpp.read_text()
 
-old_pointer = r'''    // Either controller may point at the UI. Prefer the one closest to the
+start_marker = '''    // Either controller may point at the UI. Prefer the one closest to the
     // tablet plane; the hand currently grabbing the tablet is excluded.
-    float bestPointerDepth = 1000.0f;
-    for (int hand = 0; hand < 2; ++hand) {
-        if (!handActive[hand] || (panelGrabbed && hand == panelGrabHand)) {
-            continue;
-        }
-        const Matrix4f candidateTip =
-            handPose[hand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
-        float candidateX = 0.0f;
-        float candidateY = 0.0f;
-        float candidateZ = 0.0f;
-        panelLocalPoint(candidateTip, candidateX, candidateY, candidateZ);
-        const float candidateDepth = std::abs(candidateZ);
-        if (candidateDepth < 0.060f &&
-            std::abs(candidateX) < 0.170f &&
-            candidateY > -0.310f && candidateY < 0.210f &&
-            candidateDepth < bestPointerDepth) {
-            bestPointerDepth = candidateDepth;
-            pointerTipMatrix = candidateTip;
-            pointerHand = hand;
-            havePointer = true;
-        }
-    }
-
-    const bool uiTriggerDown =
 '''
+end_marker = '''    const bool uiTriggerDown =
+'''
+
+start = text.find(start_marker)
+if start < 0:
+    raise SystemExit('v1.1.1 pointer block start anchor not found')
+
+end = text.find(end_marker, start)
+if end < 0:
+    raise SystemExit('v1.1.1 pointer block end anchor not found')
 
 new_pointer = r'''    // QuestMR v1.1.1: true controller ray -> tablet plane cursor.
     // The old implementation used the controller tip itself as the cursor and
@@ -41,7 +27,9 @@ new_pointer = r'''    // QuestMR v1.1.1: true controller ray -> tablet plane cur
     // glued to the panel even while the panel is translated or rotated.
     float bestPointerDistance = 1000.0f;
     for (int hand = 0; hand < 2; ++hand) {
-        if (!handActive[hand] || (panelGrabbed && hand == panelGrabHand)) {
+        if (!handActive[hand] ||
+            (panelGrabbed && hand == panelGrabHand) ||
+            (modelGrabbed && hand == modelGrabHand)) {
             continue;
         }
 
@@ -106,13 +94,9 @@ new_pointer = r'''    // QuestMR v1.1.1: true controller ray -> tablet plane cur
         }
     }
 
-    const bool uiTriggerDown =
 '''
 
-if old_pointer not in text:
-    raise SystemExit('v1.1.1 pointer selection anchor not found')
-
-text = text.replace(old_pointer, new_pointer, 1)
+text = text[:start] + new_pointer + text[end:]
 
 cpp.write_text(text)
 print('v1.1.1 controller ray -> tablet plane pointer: ON')
