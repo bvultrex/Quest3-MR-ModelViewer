@@ -1,0 +1,38 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.0.3: expand free model SCALE range from 0.25x..3.0x to 0.25x..10.0x.
+# Keep 1.0x as the default/reset value and widen the grab radius cap so very
+# large models remain practical to pick up.
+old_scale_expr = '0.25f + modelScaleSlider * 2.75f'
+new_scale_expr = '0.25f + modelScaleSlider * 9.75f'
+scale_expr_count = text.count(old_scale_expr)
+if scale_expr_count < 2:
+    raise SystemExit(f'v1.0.3 scale-expression anchors missing/count={scale_expr_count}')
+text = text.replace(old_scale_expr, new_scale_expr)
+
+old_default = 'modelScaleSlider = 0.272727f;'
+new_default = 'modelScaleSlider = 0.0769231f;'
+default_count = text.count(old_default)
+if default_count < 3:
+    raise SystemExit(f'v1.0.3 default-scale anchors missing/count={default_count}')
+text = text.replace(old_default, new_default)
+
+text = text.replace(
+    '// 1.0x in the 0.25x..3.0x range.',
+    '// 1.0x in the 0.25x..10.0x range.',
+    1,
+)
+
+old_grab_cap = '0.10f, std::min(1.25f, 0.08f + displayedExtent * 0.55f));'
+new_grab_cap = '0.10f, std::min(2.25f, 0.08f + displayedExtent * 0.55f));'
+if old_grab_cap not in text:
+    raise SystemExit('v1.0.3 grab-radius cap anchor missing')
+text = text.replace(old_grab_cap, new_grab_cap, 1)
+
+cpp.write_text(text)
+print('v1.0.3 free SCALE range: 0.25x..10.0x')
+print('v1.0.3 default/reset scale remains 1.0x')
+print('v1.0.3 large-model grab radius cap: 2.25m')
