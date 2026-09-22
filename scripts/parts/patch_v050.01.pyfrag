@@ -1,0 +1,168 @@
+
+# ---------------------------------------------------------------------------
+# 4) Upload every glTF material and retain the draw ranges.
+# ---------------------------------------------------------------------------
+load_start = text.find('bool QuestMrLoadGlb(const std::string& path, long long stamp) {')
+if load_start < 0:
+    raise SystemExit('v1.1 loader start missing')
+
+material_upload_start = text.find(
+    '    QuestMrDestroyImportedMesh();\n\n    GLuint baseColorTexture = 0;',
+    load_start)
+material_upload_end = text.find(
+    '    cgltf_free(data);\n\n    GL(glGenVertexArrays',
+    material_upload_start)
+if material_upload_start < 0 or material_upload_end < 0:
+    raise SystemExit('v1.1 old single-material upload block missing')
+
+material_upload = r'''    QuestMrDestroyImportedMesh();
+
+    std::vector<QuestMrImportedMaterial> importedMaterials;
+    importedMaterials.resize(static_cast<size_t>(data->materials_count) + 1);
+
+    // Slot 0 is the material-less glTF fallback. Real materials start at slot 1.
+    importedMaterials[0].metallicFactor = 1.0f;
+    importedMaterials[0].roughnessFactor = 1.0f;
+    importedMaterials[0].normalScale = 1.0f;
+
+    for (cgltf_size materialIndex = 0; materialIndex < data->materials_count; ++materialIndex) {
+        const cgltf_material& source = data->materials[materialIndex];
+        QuestMrImportedMaterial& target = importedMaterials[static_cast<size_t>(materialIndex) + 1];
+
+        if (source.has_pbr_metallic_roughness) {
+            const cgltf_pbr_metallic_roughness& pbr = source.pbr_metallic_roughness;
+            target.metallicFactor =
+                std::isfinite(pbr.metallic_factor) ? pbr.metallic_factor : 1.0f;
+            target.roughnessFactor =
+                std::isfinite(pbr.roughness_factor) ? pbr.roughness_factor : 1.0f;
+            target.hasBaseColorTexture = QuestMrUploadTextureView(
+                pbr.base_color_texture,
+                target.baseColorTexture,
+                "baseColor",
+                true);
+            target.hasMetallicRoughnessTexture = QuestMrUploadTextureView(
+                pbr.metallic_roughness_texture,
+                target.metallicRoughnessTexture,
+                "metallicRoughness",
+                false);
+        }
+
+        target.normalScale = std::isfinite(source.normal_texture.scale)
+            ? source.normal_texture.scale
+            : 1.0f;
+        target.hasNormalTexture = QuestMrUploadTextureView(
+            source.normal_texture,
+            target.normalTexture,
+            "normal",
+            false);
+
+        target.metallicFactor = std::max(0.0f, std::min(1.0f, target.metallicFactor));
+        target.roughnessFactor = std::max(0.04f, std::min(1.0f, target.roughnessFactor));
+        target.normalScale = std::max(0.0f, std::min(2.0f, target.normalScale));
+    }
+
+'''
+text = text[:material_upload_start] + material_upload + text[material_upload_end:]
+
+assign_start = text.find('    gQuestMrImportedMesh.baseColorTexture = baseColorTexture;', load_start)
+assign_end = text.find('    gQuestMrImportedMesh.loadedStamp = stamp;', assign_start)
+if assign_start < 0 or assign_end < 0:
+    raise SystemExit('v1.1 old single-material mesh assignment missing')
+text = (
+    text[:assign_start] +
+    '''    gQuestMrImportedMesh.materials = std::move(importedMaterials);\n'''
+    '''    gQuestMrImportedMesh.draws = std::move(drawRanges);\n''' +
+    text[assign_end:]
+)
+
+log_start = text.find(
+    '    ALOGV(\n        "QuestMR: PBR GLB primitives=',
+    load_start)
+log_end = text.find('    return true;', log_start)
+if log_start < 0 or log_end < 0:
+    raise SystemExit('v1.1 old PBR import log missing')
+new_log = r'''    ALOGV(
+        "QuestMR: v1.1 GLB primitives=%zu skipped=%zu draws=%zu materials=%zu vertices=%zu indices=%zu",
+        acceptedPrimitives,
+        skippedPrimitives,
+        gQuestMrImportedMesh.draws.size(),
+        gQuestMrImportedMesh.materials.size(),
+        vertices.size(),
+        indices.size());
+'''
+text = text[:log_start] + new_log + text[log_end:]
+
+# ---------------------------------------------------------------------------
+# 5) Draw each primitive with its own material instead of applying one texture
+#    set to the entire model.
+# ---------------------------------------------------------------------------
+model_block = text.find('    // Render only the imported model. No sample/controller cubes remain.')
+if model_block < 0:
+    raise SystemExit('v1.1 imported-model render block missing')
+
+metallic_pos = text.find('Uniform::Index::METALLIC_FACTOR', model_block)
+material_state_start = text.rfind('        GL(glUniform1f(', model_block, metallic_pos)
+first_tex_bind = text.find('        GL(glActiveTexture(GL_TEXTURE1));', material_state_start)
+second_tex_bind = text.find('        GL(glActiveTexture(GL_TEXTURE1));', first_tex_bind + 1)
+if metallic_pos < 0 or material_state_start < 0 or first_tex_bind < 0 or second_tex_bind < 0:
+    raise SystemExit('v1.1 single-material render anchors missing')
+
+multi_draw = r'''        GL(glBindVertexArray(gQuestMrImportedMesh.vao));
+        GL(glUniformMatrix4fv(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+            1,
+            GL_TRUE,
+            &importedModel.M[0][0]));
+
+        const QuestMrImportedMaterial fallbackMaterial{};
+        for (const QuestMrImportedDraw& draw : gQuestMrImportedMesh.draws) {
+            const QuestMrImportedMaterial& material =
+                (draw.materialSlot >= 0 &&
+                 static_cast<size_t>(draw.materialSlot) < gQuestMrImportedMesh.materials.size())
+                    ? gQuestMrImportedMesh.materials[static_cast<size_t>(draw.materialSlot)]
+                    : fallbackMaterial;
+
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::METALLIC_FACTOR),
+                fullPbrMode ? material.metallicFactor : 0.0f));
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::ROUGHNESS_FACTOR),
+                fullPbrMode ? material.roughnessFactor : 0.82f));
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::NORMAL_SCALE),
+                fullPbrMode ? material.normalScale : 0.0f));
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::HAS_BASE_COLOR_TEXTURE),
+                material.hasBaseColorTexture ? 1.0f : 0.0f));
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::HAS_NORMAL_TEXTURE),
+                (fullPbrMode && material.hasNormalTexture) ? 1.0f : 0.0f));
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(
+                    Uniform::Index::HAS_METALLIC_ROUGHNESS_TEXTURE),
+                (fullPbrMode && material.hasMetallicRoughnessTexture) ? 1.0f : 0.0f));
+
+            GL(glActiveTexture(GL_TEXTURE1));
+            GL(glBindTexture(GL_TEXTURE_2D, material.baseColorTexture));
+            GL(glActiveTexture(GL_TEXTURE2));
+            GL(glBindTexture(GL_TEXTURE_2D, material.normalTexture));
+            GL(glActiveTexture(GL_TEXTURE3));
+            GL(glBindTexture(GL_TEXTURE_2D, material.metallicRoughnessTexture));
+            GL(glActiveTexture(GL_TEXTURE0));
+
+            GL(glDrawElements(
+                GL_TRIANGLES,
+                draw.indexCount,
+                GL_UNSIGNED_INT,
+                reinterpret_cast<const void*>(draw.indexOffsetBytes)));
+        }
+
+'''
+text = text[:material_state_start] + multi_draw + text[second_tex_bind:]
+
+cpp.write_text(text)
+print('v1.1 multi-material primitive rendering: ON')
+print('v1.1 BaseColor sRGB decode: ON')
+print('v1.1 normal/MR linear texture path: ON')
+print('v1.1 anisotropic filtering up to 8x when supported: ON')
+print('v1.1 inverse-transpose node normals + mirrored winding repair: ON')
