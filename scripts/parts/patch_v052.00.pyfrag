@@ -1,0 +1,256 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.1.2
+# - Share glTF image uploads across materials (sRGB and linear stay distinct).
+# - Bilateral weight on the accepted 3x3 Environment Depth kernel.
+# - Rig diagnostic: skins / JOINTS_0 / WEIGHTS_0 / morphs, tablet label RIG.
+
+cache_anchor = 'struct QuestMrImportedMaterial {'
+cache_block = r'''struct QuestMrCachedTexture {
+    const cgltf_image* image = nullptr;
+    bool srgb = false;
+    GLuint texture = 0;
+};
+
+std::vector<QuestMrCachedTexture> gQuestMrTextureCache;
+bool gQuestMrLastImportRigged = false;
+
+'''
+if cache_anchor not in text:
+    raise SystemExit('v1.1.2 cache anchor missing')
+if 'struct QuestMrCachedTexture' not in text:
+    text = text.replace(cache_anchor, cache_block + cache_anchor, 1)
+
+destroy_old = '''    for (auto& material : gQuestMrImportedMesh.materials) {
+        if (material.baseColorTexture != 0) {
+            GL(glDeleteTextures(1, &material.baseColorTexture));
+        }
+        if (material.normalTexture != 0) {
+            GL(glDeleteTextures(1, &material.normalTexture));
+        }
+        if (material.metallicRoughnessTexture != 0) {
+            GL(glDeleteTextures(1, &material.metallicRoughnessTexture));
+        }
+    }'''
+destroy_new = r'''    std::vector<GLuint> uniqueTextures;
+    uniqueTextures.reserve(gQuestMrTextureCache.size() + gQuestMrImportedMesh.materials.size() * 3);
+    for (const QuestMrCachedTexture& cached : gQuestMrTextureCache) {
+        if (cached.texture == 0) {
+            continue;
+        }
+        bool seen = false;
+        for (GLuint existing : uniqueTextures) {
+            if (existing == cached.texture) {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen) {
+            uniqueTextures.push_back(cached.texture);
+        }
+    }
+    for (auto& material : gQuestMrImportedMesh.materials) {
+        const GLuint names[3] = {
+            material.baseColorTexture,
+            material.normalTexture,
+            material.metallicRoughnessTexture,
+        };
+        for (GLuint name : names) {
+            if (name == 0) {
+                continue;
+            }
+            bool seen = false;
+            for (GLuint existing : uniqueTextures) {
+                if (existing == name) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen) {
+                uniqueTextures.push_back(name);
+            }
+        }
+        material.baseColorTexture = 0;
+        material.normalTexture = 0;
+        material.metallicRoughnessTexture = 0;
+    }
+    for (GLuint name : uniqueTextures) {
+        GL(glDeleteTextures(1, &name));
+    }
+    gQuestMrTextureCache.clear();'''
+if destroy_old not in text:
+    raise SystemExit('v1.1.2 material destroy anchor missing')
+text = text.replace(destroy_old, destroy_new, 1)
+
+create_old = '''    gQuestMrImportedMesh = QuestMrImportedMesh{};
+    gQuestMrImportedMesh.loadedStamp = previousImportedStamp;'''
+create_new = '''    gQuestMrImportedMesh = QuestMrImportedMesh{};
+    gQuestMrImportedMesh.loadedStamp = previousImportedStamp;
+    // New EGL context: drop cached names, do not delete them.
+    gQuestMrTextureCache.clear();
+    gQuestMrLastImportRigged = false;'''
+if create_old not in text:
+    raise SystemExit('v1.1.2 scene-create cache anchor missing')
+text = text.replace(create_old, create_new, 1)
+
+upload_old = '''    const cgltf_image* image = textureView.texture->image;
+    if (image->buffer_view == nullptr || image->buffer_view->size == 0) {'''
+upload_new = r'''    const cgltf_image* image = textureView.texture->image;
+    const bool srgbTexture = label != nullptr && std::string(label) == "baseColor";
+    for (const QuestMrCachedTexture& cached : gQuestMrTextureCache) {
+        if (cached.image == image && cached.srgb == srgbTexture && cached.texture != 0) {
+            outTexture = cached.texture;
+            ALOGV("QuestMR v1.1.2: reused %s texture", label != nullptr ? label : "texture");
+            return true;
+        }
+    }
+    if (image->buffer_view == nullptr || image->buffer_view->size == 0) {'''
+if upload_old not in text:
+    raise SystemExit('v1.1.2 texture upload anchor missing')
+text = text.replace(upload_old, upload_new, 1)
+
+srgb_old = '''    const bool srgbTexture = label != nullptr && std::string(label) == "baseColor";
+    const GLint internalFormat = srgbTexture ? GL_SRGB8_ALPHA8 : GL_RGBA8;'''
+srgb_new = '''    const GLint internalFormat = srgbTexture ? GL_SRGB8_ALPHA8 : GL_RGBA8;'''
+if srgb_old not in text:
+    raise SystemExit('v1.1.2 sRGB declaration anchor missing')
+text = text.replace(srgb_old, srgb_new, 1)
+
+remember_old = '''    ALOGV(
+        "QuestMR: uploaded %s texture %dx%d components=%d",
+        label,
+        width,
+        height,
+        sourceComponents);
+    return true;'''
+remember_new = r'''    gQuestMrTextureCache.push_back(QuestMrCachedTexture{image, srgbTexture, outTexture});
+    ALOGV(
+        "QuestMR: uploaded %s texture %dx%d components=%d",
+        label,
+        width,
+        height,
+        sourceComponents);
+    return true;'''
+if remember_old not in text:
+    raise SystemExit('v1.1.2 texture remember anchor missing')
+text = text.replace(remember_old, remember_new, 1)
+
+load_old = 'bool QuestMrLoadGlb(const std::string& path, long long stamp) {'
+load_new = '''bool QuestMrLoadGlb(const std::string& path, long long stamp) {
+    gQuestMrLastImportRigged = false;'''
+if load_old not in text:
+    raise SystemExit('v1.1.2 load start missing')
+text = text.replace(load_old, load_new, 1)
+
+log_old = '''    ALOGV(
+        "QuestMR: v1.1 GLB primitives=%zu skipped=%zu draws=%zu materials=%zu vertices=%zu indices=%zu",'''
+log_new = r'''    {
+        int skinnedPrims = 0;
+        int morphPrims = 0;
+        cgltf_size jointCount = 0;
+        if (data != nullptr) {
+            for (cgltf_size meshIndex = 0; meshIndex < data->meshes_count; ++meshIndex) {
+                const cgltf_mesh& rigMesh = data->meshes[meshIndex];
+                for (cgltf_size primIndex = 0; primIndex < rigMesh.primitives_count; ++primIndex) {
+                    const cgltf_primitive& rigPrim = rigMesh.primitives[primIndex];
+                    if (rigPrim.targets_count > 0) {
+                        ++morphPrims;
+                    }
+                    bool hasJoints = false;
+                    bool hasWeights = false;
+                    for (cgltf_size attrIndex = 0; attrIndex < rigPrim.attributes_count; ++attrIndex) {
+                        const cgltf_attribute& attribute = rigPrim.attributes[attrIndex];
+                        if (attribute.index != 0) {
+                            continue;
+                        }
+                        if (attribute.type == cgltf_attribute_type_joints) {
+                            hasJoints = true;
+                        } else if (attribute.type == cgltf_attribute_type_weights) {
+                            hasWeights = true;
+                        }
+                    }
+                    if (hasJoints && hasWeights) {
+                        ++skinnedPrims;
+                    }
+                }
+            }
+            for (cgltf_size skinIndex = 0; skinIndex < data->skins_count; ++skinIndex) {
+                jointCount += data->skins[skinIndex].joints_count;
+            }
+        }
+        gQuestMrLastImportRigged = data != nullptr && data->skins_count > 0 && skinnedPrims > 0;
+        ALOGV(
+            "QuestMR v1.1.2 rig skins=%zu joints=%zu skinnedPrims=%d morphPrims=%d anims=%zu",
+            data != nullptr ? data->skins_count : 0,
+            jointCount,
+            skinnedPrims,
+            morphPrims,
+            data != nullptr ? data->animations_count : 0);
+    }
+    ALOGV(
+        "QuestMR: v1.1 GLB primitives=%zu skipped=%zu draws=%zu materials=%zu vertices=%zu indices=%zu",'''
+if log_old not in text:
+    raise SystemExit('v1.1.2 import log anchor missing')
+text = text.replace(log_old, log_new, 1)
+
+state_old = '    gQuestMrImportState = ok ? 2 : 3;'
+state_new = '    gQuestMrImportState = !ok ? 3 : (gQuestMrLastImportRigged ? 4 : 2);'
+if state_old not in text:
+    raise SystemExit('v1.1.2 import-state anchor missing')
+text = text.replace(state_old, state_new, 1)
+
+meshes_old = 'QuestMrUiTextMesh gQuestMrImportStatusMeshes[4];'
+meshes_new = 'QuestMrUiTextMesh gQuestMrImportStatusMeshes[5];'
+if meshes_old not in text:
+    raise SystemExit('v1.1.2 status mesh array anchor missing')
+text = text.replace(meshes_old, meshes_new, 1)
+
+labels_old = '''    static const char* labels[4] = {"IDLE", "WAIT", "READY", "ERROR"};
+    for (int i = 0; i < 4; ++i) {'''
+labels_new = '''    static const char* labels[5] = {"IDLE", "WAIT", "READY", "ERROR", "RIG"};
+    for (int i = 0; i < 5; ++i) {'''
+if labels_old not in text:
+    raise SystemExit('v1.1.2 status labels anchor missing')
+text = text.replace(labels_old, labels_new, 1)
+
+clamp_old = 'const int importStatusIndex = std::max(0, std::min(3, gQuestMrImportState));'
+clamp_new = 'const int importStatusIndex = std::max(0, std::min(4, gQuestMrImportState));'
+if clamp_old not in text:
+    raise SystemExit('v1.1.2 status clamp anchor missing')
+text = text.replace(clamp_old, clamp_new, 1)
+
+color_old = '''            } else if (importStatusIndex == 3) {
+                statusR = 0.96f; statusG = 0.42f; statusB = 0.34f;
+            }'''
+color_new = '''            } else if (importStatusIndex == 3) {
+                statusR = 0.96f; statusG = 0.42f; statusB = 0.34f;
+            } else if (importStatusIndex == 4) {
+                statusR = 0.45f; statusG = 0.78f; statusB = 0.98f;
+            }'''
+if color_old not in text:
+    raise SystemExit('v1.1.2 status color anchor missing')
+text = text.replace(color_old, color_new, 1)
+
+depth_old = '''        highp float wx = (x == 0) ? 2.0f : 1.0f;
+        highp float wy = (y == 0) ? 2.0f : 1.0f;
+        highp float weight = wx * wy;'''
+depth_new = '''        highp float wx = (x == 0) ? 2.0f : 1.0f;
+        highp float wy = (y == 0) ? 2.0f : 1.0f;
+        // QuestMR v1.1.2 bilateral Environment Depth:
+        // same 3x3 Gaussian and bias as v0.1.2, but taps on a different real
+        // surface do not vote. Sigma is about 10 cm so Quest depth noise stays
+        // inside the kernel while furniture/background edges stay tighter.
+        highp float depthDiff = abs(realDepth - depthViewEyeZ);
+        highp float bilateral = exp(-depthDiff * depthDiff * 50.0f);
+        highp float weight = wx * wy * bilateral;'''
+if depth_old not in text:
+    raise SystemExit('v1.1.2 depth weight anchor missing')
+text = text.replace(depth_old, depth_new, 1)
+
+cpp.write_text(text)
+print('v1.1.2 shared glTF texture cache: ON')
+print('v1.1.2 bilateral Environment Depth weights: ON')
+print('v1.1.2 rig diagnostic label: ON')

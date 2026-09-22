@@ -40,6 +40,7 @@ run_fragmented_patch patch_v048
 run_fragmented_patch patch_v049
 run_fragmented_patch patch_v050
 run_fragmented_patch patch_v051
+run_fragmented_patch patch_v052
 
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
@@ -82,6 +83,11 @@ grep -n 'GL_SRGB8_ALPHA8' "$SRC"
 grep -n 'GL_TEXTURE_MAX_ANISOTROPY_EXT' "$SRC"
 grep -n 'QuestMR v1.1.1: true controller ray -> tablet plane cursor' "$SRC"
 grep -n 'rayDistance > 3.0f' "$SRC"
+grep -n 'QuestMR v1.1.2: reused' "$SRC"
+grep -n 'QuestMR v1.1.2 bilateral Environment Depth' "$SRC"
+grep -n 'QuestMR v1.1.2 rig skins=' "$SRC"
+grep -n 'gQuestMrLastImportRigged ? 4' "$SRC"
+grep -n '"RIG"' "$SRC"
 grep -n 'peak-memory guard' "$SRC"
 grep -n 'returnToViewer' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
 grep -n 'QUESTMR_V039_VISIBLE_PICKER' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
