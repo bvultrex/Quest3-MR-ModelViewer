@@ -70,8 +70,8 @@ if assign_start < 0 or assign_end < 0:
     raise SystemExit('v1.1 old single-material mesh assignment missing')
 text = (
     text[:assign_start] +
-    '''    gQuestMrImportedMesh.materials = std::move(importedMaterials);\n'''
-    '''    gQuestMrImportedMesh.draws = std::move(drawRanges);\n''' +
+    '''    gQuestMrImportedMesh.materials = importedMaterials;\n'''
+    '''    gQuestMrImportedMesh.draws = drawRanges;\n''' +
     text[assign_end:]
 )
 
