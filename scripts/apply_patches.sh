@@ -42,6 +42,7 @@ run_fragmented_patch patch_v050
 run_fragmented_patch patch_v051
 run_fragmented_patch patch_v052
 run_fragmented_patch patch_v053
+run_fragmented_patch patch_v054
 
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
@@ -86,6 +87,9 @@ grep -n 'QuestMR v1.1.1: true controller ray -> tablet plane cursor' "$SRC"
 grep -n 'rayDistance > 3.0f' "$SRC"
 grep -n 'QuestMR v1.1.2: reused' "$SRC"
 grep -n 'QuestMR v1.1.3 restored v0.1.2 Environment Depth weights' "$SRC"
+grep -n 'QuestMR v1.2.0 skin palette joints=' "$SRC"
+grep -n 'VERTEX_ATTRIBUTE_LOCATION_JOINTS' "$SRC"
+grep -n 'jointMatrices\[int(vertexJoints.x)\]' "$SRC"
 grep -n 'QuestMR v1.1.2 rig skins=' "$SRC"
 grep -n 'gQuestMrLastImportRigged ? 4' "$SRC"
 grep -n '"RIG"' "$SRC"

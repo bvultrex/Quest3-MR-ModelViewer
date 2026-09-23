@@ -1,0 +1,408 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.2.0 bind-pose skinning. Static vertices keep weight 0 and skip the palette.
+# Joint palette is capped at 96. Larger skins stay on the old baked path.
+
+enum_old = '''    VERTEX_ATTRIBUTE_LOCATION_TRANSFORM,
+    VERTEX_ATTRIBUTE_LOCATION_NORMAL
+};'''
+enum_new = '''    VERTEX_ATTRIBUTE_LOCATION_TRANSFORM,
+    VERTEX_ATTRIBUTE_LOCATION_NORMAL,
+    VERTEX_ATTRIBUTE_LOCATION_JOINTS,
+    VERTEX_ATTRIBUTE_LOCATION_WEIGHTS
+};'''
+if enum_old not in text:
+    raise SystemExit('v1.2.0 attribute enum anchor missing')
+text = text.replace(enum_old, enum_new, 1)
+
+attrs_old = '''    {VERTEX_ATTRIBUTE_LOCATION_TRANSFORM, "vertexTransform"},
+    {VERTEX_ATTRIBUTE_LOCATION_NORMAL, "vertexNormal"}};'''
+attrs_new = '''    {VERTEX_ATTRIBUTE_LOCATION_TRANSFORM, "vertexTransform"},
+    {VERTEX_ATTRIBUTE_LOCATION_NORMAL, "vertexNormal"},
+    {VERTEX_ATTRIBUTE_LOCATION_JOINTS, "vertexJoints"},
+    {VERTEX_ATTRIBUTE_LOCATION_WEIGHTS, "vertexWeights"}};'''
+if attrs_old not in text:
+    raise SystemExit('v1.2.0 attribute table anchor missing')
+text = text.replace(attrs_old, attrs_new, 1)
+
+vertex_old = '''    float uv[2];
+    unsigned char color[4];
+};'''
+vertex_new = '''    float uv[2];
+    unsigned char color[4];
+    unsigned char joints[4];
+    unsigned char weights[4];
+};'''
+if vertex_old not in text:
+    raise SystemExit('v1.2.0 vertex struct anchor missing')
+text = text.replace(vertex_old, vertex_new, 1)
+
+cache_old = 'std::vector<QuestMrCachedTexture> gQuestMrTextureCache;\n'
+cache_new = '''std::vector<QuestMrCachedTexture> gQuestMrTextureCache;
+std::vector<float> gQuestMrJointPalette;
+GLuint gQuestMrJointUbo = 0;
+'''
+if cache_old not in text:
+    raise SystemExit('v1.2.0 joint palette global anchor missing')
+text = text.replace(cache_old, cache_new, 1)
+
+create_old = '''    gQuestMrTextureCache.clear();
+    gQuestMrLastImportRigged = false;'''
+create_new = '''    gQuestMrTextureCache.clear();
+    gQuestMrLastImportRigged = false;
+    gQuestMrJointUbo = 0;
+    gQuestMrJointPalette.clear();'''
+if create_old not in text:
+    raise SystemExit('v1.2.0 scene-create joint anchor missing')
+text = text.replace(create_old, create_new, 1)
+
+destroy_old = '''    gQuestMrTextureCache.clear();
+    const long long stamp = gQuestMrImportedMesh.loadedStamp;'''
+destroy_new = '''    gQuestMrTextureCache.clear();
+    if (gQuestMrJointUbo != 0) {
+        GL(glDeleteBuffers(1, &gQuestMrJointUbo));
+        gQuestMrJointUbo = 0;
+    }
+    gQuestMrJointPalette.clear();
+    const long long stamp = gQuestMrImportedMesh.loadedStamp;'''
+if destroy_old not in text:
+    raise SystemExit('v1.2.0 joint UBO destroy anchor missing')
+text = text.replace(destroy_old, destroy_new, 1)
+
+palette_old = '''    std::vector<QuestMrImportedVertex> vertices;
+    std::vector<uint32_t> indices;
+    float minP[3] = {'''
+palette_new = r'''    gQuestMrJointPalette.assign(96 * 16, 0.0f);
+    for (int joint = 0; joint < 96; ++joint) {
+        gQuestMrJointPalette[joint * 16 + 0] = 1.0f;
+        gQuestMrJointPalette[joint * 16 + 5] = 1.0f;
+        gQuestMrJointPalette[joint * 16 + 10] = 1.0f;
+        gQuestMrJointPalette[joint * 16 + 15] = 1.0f;
+    }
+    std::vector<int> skinPaletteBase(static_cast<size_t>(data->skins_count), -1);
+    int paletteCursor = 0;
+    for (cgltf_size skinIndex = 0; skinIndex < data->skins_count; ++skinIndex) {
+        const cgltf_skin& skin = data->skins[skinIndex];
+        if (skin.joints_count == 0 ||
+            paletteCursor + static_cast<int>(skin.joints_count) > 96) {
+            ALOGV(
+                "QuestMR v1.2.0 skin %zu skipped, joints=%zu",
+                skinIndex,
+                skin.joints_count);
+            continue;
+        }
+        skinPaletteBase[static_cast<size_t>(skinIndex)] = paletteCursor;
+        for (cgltf_size jointIndex = 0; jointIndex < skin.joints_count; ++jointIndex) {
+            cgltf_float worldJoint[16];
+            cgltf_node_transform_world(skin.joints[jointIndex], worldJoint);
+            cgltf_float inverseBind[16] = {
+                1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+            if (skin.inverse_bind_matrices != nullptr &&
+                jointIndex < skin.inverse_bind_matrices->count) {
+                cgltf_accessor_read_float(
+                    skin.inverse_bind_matrices, jointIndex, inverseBind, 16);
+            }
+            float* out = &gQuestMrJointPalette[(paletteCursor + static_cast<int>(jointIndex)) * 16];
+            for (int col = 0; col < 4; ++col) {
+                for (int row = 0; row < 4; ++row) {
+                    out[col * 4 + row] =
+                        worldJoint[0 * 4 + row] * inverseBind[col * 4 + 0] +
+                        worldJoint[1 * 4 + row] * inverseBind[col * 4 + 1] +
+                        worldJoint[2 * 4 + row] * inverseBind[col * 4 + 2] +
+                        worldJoint[3 * 4 + row] * inverseBind[col * 4 + 3];
+                }
+            }
+        }
+        paletteCursor += static_cast<int>(skin.joints_count);
+    }
+    ALOGV(
+        "QuestMR v1.2.0 skin palette joints=%d skins=%zu",
+        paletteCursor,
+        data->skins_count);
+
+    std::vector<QuestMrImportedVertex> vertices;
+    std::vector<uint32_t> indices;
+    float minP[3] = {'''
+if palette_old not in text:
+    raise SystemExit('v1.2.0 palette insertion anchor missing')
+text = text.replace(palette_old, palette_new, 1)
+
+skin_old = '''            if (uvAccessor != nullptr && uvAccessor->count != positionAccessor->count) {
+                uvAccessor = nullptr;
+            }
+
+            const size_t primitiveVertexCount = static_cast<size_t>(positionAccessor->count);'''
+skin_new = r'''            if (uvAccessor != nullptr && uvAccessor->count != positionAccessor->count) {
+                uvAccessor = nullptr;
+            }
+
+            int skinSlot = -1;
+            if (node->skin != nullptr && data->skins != nullptr && data->skins_count > 0) {
+                const auto skinIndex = node->skin - data->skins;
+                if (skinIndex >= 0 && static_cast<cgltf_size>(skinIndex) < data->skins_count) {
+                    skinSlot = skinPaletteBase[static_cast<size_t>(skinIndex)];
+                }
+            }
+            const cgltf_accessor* jointsAccessor = nullptr;
+            const cgltf_accessor* weightsAccessor = nullptr;
+            for (cgltf_size skinAttr = 0; skinAttr < primitive.attributes_count; ++skinAttr) {
+                const cgltf_attribute& attribute = primitive.attributes[skinAttr];
+                if (attribute.index != 0 || attribute.data == nullptr) {
+                    continue;
+                }
+                if (attribute.type == cgltf_attribute_type_joints) {
+                    jointsAccessor = attribute.data;
+                } else if (attribute.type == cgltf_attribute_type_weights) {
+                    weightsAccessor = attribute.data;
+                }
+            }
+            const bool skinThisPrimitive =
+                skinSlot >= 0 &&
+                jointsAccessor != nullptr &&
+                weightsAccessor != nullptr &&
+                jointsAccessor->count == positionAccessor->count &&
+                weightsAccessor->count == positionAccessor->count;
+
+            const size_t primitiveVertexCount = static_cast<size_t>(positionAccessor->count);'''
+if skin_old not in text:
+    raise SystemExit('v1.2.0 primitive skin anchor missing')
+text = text.replace(skin_old, skin_new, 1)
+
+pos_old = '''                QuestMrImportedVertex v{};
+                v.position[0] = world[0] * p[0] + world[4] * p[1] + world[8] * p[2] + world[12];
+                v.position[1] = world[1] * p[0] + world[5] * p[1] + world[9] * p[2] + world[13];
+                v.position[2] = world[2] * p[0] + world[6] * p[1] + world[10] * p[2] + world[14];'''
+pos_new = r'''                QuestMrImportedVertex v{};
+                if (skinThisPrimitive) {
+                    v.position[0] = p[0];
+                    v.position[1] = p[1];
+                    v.position[2] = p[2];
+                    cgltf_uint jointIds[4] = {0, 0, 0, 0};
+                    cgltf_float weightValues[4] = {1.0f, 0.0f, 0.0f, 0.0f};
+                    cgltf_accessor_read_uint(jointsAccessor, vertexIndex, jointIds, 4);
+                    cgltf_accessor_read_float(weightsAccessor, vertexIndex, weightValues, 4);
+                    float weightSum = 0.0f;
+                    for (int influence = 0; influence < 4; ++influence) {
+                        if (!std::isfinite(weightValues[influence]) || weightValues[influence] < 0.0f) {
+                            weightValues[influence] = 0.0f;
+                        }
+                        weightSum += weightValues[influence];
+                    }
+                    if (weightSum > 0.000001f) {
+                        for (int influence = 0; influence < 4; ++influence) {
+                            weightValues[influence] /= weightSum;
+                        }
+                    }
+                    for (int influence = 0; influence < 4; ++influence) {
+                        int paletteIndex = skinSlot + static_cast<int>(jointIds[influence]);
+                        if (paletteIndex < 0) {
+                            paletteIndex = 0;
+                        } else if (paletteIndex > 95) {
+                            paletteIndex = 95;
+                        }
+                        v.joints[influence] = static_cast<unsigned char>(paletteIndex);
+                        const float clampedWeight = std::max(0.0f, std::min(1.0f, weightValues[influence]));
+                        v.weights[influence] =
+                            static_cast<unsigned char>(clampedWeight * 255.0f + 0.5f);
+                    }
+                } else {
+                    v.position[0] = world[0] * p[0] + world[4] * p[1] + world[8] * p[2] + world[12];
+                    v.position[1] = world[1] * p[0] + world[5] * p[1] + world[9] * p[2] + world[13];
+                    v.position[2] = world[2] * p[0] + world[6] * p[1] + world[10] * p[2] + world[14];
+                }'''
+if pos_old not in text:
+    raise SystemExit('v1.2.0 position bake anchor missing')
+text = text.replace(pos_old, pos_new, 1)
+
+normal_old = '''                    const float nx =
+                        normalMatrix[0] * n[0] + normalMatrix[1] * n[1] + normalMatrix[2] * n[2];
+                    const float ny =
+                        normalMatrix[3] * n[0] + normalMatrix[4] * n[1] + normalMatrix[5] * n[2];
+                    const float nz =
+                        normalMatrix[6] * n[0] + normalMatrix[7] * n[1] + normalMatrix[8] * n[2];'''
+normal_new = '''                    const float nx = skinThisPrimitive
+                        ? n[0]
+                        : normalMatrix[0] * n[0] + normalMatrix[1] * n[1] + normalMatrix[2] * n[2];
+                    const float ny = skinThisPrimitive
+                        ? n[1]
+                        : normalMatrix[3] * n[0] + normalMatrix[4] * n[1] + normalMatrix[5] * n[2];
+                    const float nz = skinThisPrimitive
+                        ? n[2]
+                        : normalMatrix[6] * n[0] + normalMatrix[7] * n[1] + normalMatrix[8] * n[2];'''
+if normal_old not in text:
+    raise SystemExit('v1.2.0 normal bake anchor missing')
+text = text.replace(normal_old, normal_new, 1)
+
+flip_old = '            if (flipWinding) {'
+flip_new = '            if (flipWinding && !skinThisPrimitive) {'
+if flip_old not in text:
+    raise SystemExit('v1.2.0 winding anchor missing')
+text = text.replace(flip_old, flip_new, 1)
+
+bounds_old = '''            for (size_t vIndex = vertexStart; vIndex < vertices.size(); ++vIndex) {
+                const QuestMrImportedVertex& v = vertices[vIndex];
+                for (int axis = 0; axis < 3; ++axis) {
+                    minP[axis] = std::min(minP[axis], v.position[axis]);
+                    maxP[axis] = std::max(maxP[axis], v.position[axis]);
+                }
+            }'''
+bounds_new = r'''            for (size_t vIndex = vertexStart; vIndex < vertices.size(); ++vIndex) {
+                const QuestMrImportedVertex& v = vertices[vIndex];
+                float px = v.position[0];
+                float py = v.position[1];
+                float pz = v.position[2];
+                const int weightTotal =
+                    int(v.weights[0]) + int(v.weights[1]) + int(v.weights[2]) + int(v.weights[3]);
+                if (weightTotal > 0) {
+                    float ox = 0.0f;
+                    float oy = 0.0f;
+                    float oz = 0.0f;
+                    for (int influence = 0; influence < 4; ++influence) {
+                        if (v.weights[influence] == 0 || v.joints[influence] >= 96) {
+                            continue;
+                        }
+                        const float* m = &gQuestMrJointPalette[int(v.joints[influence]) * 16];
+                        const float fw = float(v.weights[influence]) / 255.0f;
+                        ox += fw * (m[0] * px + m[4] * py + m[8] * pz + m[12]);
+                        oy += fw * (m[1] * px + m[5] * py + m[9] * pz + m[13]);
+                        oz += fw * (m[2] * px + m[6] * py + m[10] * pz + m[14]);
+                    }
+                    px = ox;
+                    py = oy;
+                    pz = oz;
+                }
+                const float posed[3] = {px, py, pz};
+                for (int axis = 0; axis < 3; ++axis) {
+                    minP[axis] = std::min(minP[axis], posed[axis]);
+                    maxP[axis] = std::max(maxP[axis], posed[axis]);
+                }
+            }'''
+if bounds_old not in text:
+    raise SystemExit('v1.2.0 bounds anchor missing')
+text = text.replace(bounds_old, bounds_new, 1)
+
+attrib_old = '''    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_NORMAL));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_NORMAL,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, normal))));'''
+attrib_new = '''    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_NORMAL));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_NORMAL,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, normal))));
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_JOINTS));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_JOINTS,
+        4,
+        GL_UNSIGNED_BYTE,
+        GL_FALSE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, joints))));
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_WEIGHTS));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_WEIGHTS,
+        4,
+        GL_UNSIGNED_BYTE,
+        GL_TRUE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, weights))));'''
+if attrib_old not in text:
+    raise SystemExit('v1.2.0 vertex attrib anchor missing')
+text = text.replace(attrib_old, attrib_new, 1)
+
+shader_in_old = '''  in vec3 vertexNormal;
+  uniform mat4 ModelMatrix;'''
+shader_in_new = '''  in vec3 vertexNormal;
+  in vec4 vertexJoints;
+  in vec4 vertexWeights;
+  uniform mat4 ModelMatrix;
+  layout(std140) uniform JointPalette {
+    mat4 jointMatrices[96];
+  };'''
+if shader_in_old not in text:
+    raise SystemExit('v1.2.0 shader input anchor missing')
+text = text.replace(shader_in_old, shader_in_new, 1)
+
+shader_main_old = '''  void main() {
+    cubeWorldPosition = ModelMatrix * vec4(vertexPosition, 1.0f);
+  \tgl_Position = sm.ProjectionMatrix[VIEW_ID] * sm.ViewMatrix[VIEW_ID] * cubeWorldPosition;
+  \tfragmentColor = vertexColor;
+    fragmentUv = vertexUv;
+    fragmentWorldNormal = mat3(ModelMatrix) * vertexNormal;
+  }'''
+shader_main_new = '''  void main() {
+    vec4 skinnedPosition = vec4(vertexPosition, 1.0f);
+    vec3 skinnedNormal = vertexNormal;
+    float weightSum = vertexWeights.x + vertexWeights.y + vertexWeights.z + vertexWeights.w;
+    if (weightSum > 0.001f) {
+      mat4 skinMatrix =
+          vertexWeights.x * jointMatrices[int(vertexJoints.x)] +
+          vertexWeights.y * jointMatrices[int(vertexJoints.y)] +
+          vertexWeights.z * jointMatrices[int(vertexJoints.z)] +
+          vertexWeights.w * jointMatrices[int(vertexJoints.w)];
+      skinnedPosition = skinMatrix * skinnedPosition;
+      skinnedNormal = mat3(skinMatrix) * vertexNormal;
+    }
+    cubeWorldPosition = ModelMatrix * skinnedPosition;
+  \tgl_Position = sm.ProjectionMatrix[VIEW_ID] * sm.ViewMatrix[VIEW_ID] * cubeWorldPosition;
+  \tfragmentColor = vertexColor;
+    fragmentUv = vertexUv;
+    fragmentWorldNormal = mat3(ModelMatrix) * skinnedNormal;
+  }'''
+if shader_main_old not in text:
+    raise SystemExit('v1.2.0 shader main anchor missing')
+text = text.replace(shader_main_old, shader_main_new, 1)
+
+draw_old = '''        GL(glBindVertexArray(gQuestMrImportedMesh.vao));
+        GL(glUniformMatrix4fv(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),'''
+draw_new = r'''        if (gQuestMrJointPalette.size() != 96 * 16) {
+            gQuestMrJointPalette.assign(96 * 16, 0.0f);
+            for (int joint = 0; joint < 96; ++joint) {
+                gQuestMrJointPalette[joint * 16 + 0] = 1.0f;
+                gQuestMrJointPalette[joint * 16 + 5] = 1.0f;
+                gQuestMrJointPalette[joint * 16 + 10] = 1.0f;
+                gQuestMrJointPalette[joint * 16 + 15] = 1.0f;
+            }
+        }
+        if (gQuestMrJointUbo == 0) {
+            GL(glGenBuffers(1, &gQuestMrJointUbo));
+        }
+        GL(glBindBuffer(GL_UNIFORM_BUFFER, gQuestMrJointUbo));
+        GL(glBufferData(
+            GL_UNIFORM_BUFFER,
+            static_cast<GLsizeiptr>(gQuestMrJointPalette.size() * sizeof(float)),
+            gQuestMrJointPalette.data(),
+            GL_DYNAMIC_DRAW));
+        GL(glBindBufferBase(GL_UNIFORM_BUFFER, 1, gQuestMrJointUbo));
+        GLint skinProgram = 0;
+        GL(glGetIntegerv(GL_CURRENT_PROGRAM, &skinProgram));
+        if (skinProgram != 0) {
+            const GLuint jointBlock = glGetUniformBlockIndex(
+                static_cast<GLuint>(skinProgram), "JointPalette");
+            if (jointBlock != GL_INVALID_INDEX) {
+                GL(glUniformBlockBinding(static_cast<GLuint>(skinProgram), jointBlock, 1));
+            }
+        }
+        GL(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+
+        GL(glBindVertexArray(gQuestMrImportedMesh.vao));
+        GL(glUniformMatrix4fv(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),'''
+if draw_old not in text:
+    raise SystemExit('v1.2.0 model draw anchor missing')
+text = text.replace(draw_old, draw_new, 1)
+
+cpp.write_text(text)
+print('v1.2.0 bind-pose GPU skinning: ON')
+print('v1.2.0 joint palette cap 96: ON')
