@@ -10,12 +10,10 @@ text = cpp.read_text()
 # parallax. Move the palette to binding 3 and force a zero weight when the
 # attribute array is disabled.
 
-ui_old = '''    if (panelInitialized) {
-        QuestMrBuildUiTextMesh();
+ui_old = '''        QuestMrBuildPhysicalSizeMeshes();
 
         const auto drawUiRect = [&](const Matrix4f& model, float r, float g, float b) {'''
-ui_new = r'''    if (panelInitialized) {
-        QuestMrBuildUiTextMesh();
+ui_new = r'''        QuestMrBuildPhysicalSizeMeshes();
 
         // QuestMR v1.2.1: keep JointPalette off the SceneMatrices binding.
         GL(glVertexAttrib4f(VERTEX_ATTRIBUTE_LOCATION_JOINTS, 0.0f, 0.0f, 0.0f, 0.0f));
