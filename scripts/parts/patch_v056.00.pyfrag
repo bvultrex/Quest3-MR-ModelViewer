@@ -1,0 +1,343 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.3.0 live skeleton. Trigger near a joint yaws/pitches that bone.
+# Grip still moves the whole model. Static meshes never enter this path.
+
+helpers_old = '''std::vector<float> gQuestMrJointPalette;
+GLuint gQuestMrJointUbo = 0;
+'''
+helpers_new = r'''std::vector<float> gQuestMrJointPalette;
+GLuint gQuestMrJointUbo = 0;
+
+struct QuestMrJoint {
+    int parent = -1;
+    float bindLocal[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    float local[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    float inverseBind[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    float world[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+};
+
+std::vector<QuestMrJoint> gQuestMrJoints;
+int gQuestMrPoseJoint = -1;
+int gQuestMrPoseHand = -1;
+bool gQuestMrPoseActive = false;
+float gQuestMrPoseLocalStart[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+Matrix4f gQuestMrPoseHandStart;
+
+void QuestMrMulMat4(const float* a, const float* b, float* out) {
+    float tmp[16];
+    for (int col = 0; col < 4; ++col) {
+        for (int row = 0; row < 4; ++row) {
+            tmp[col * 4 + row] =
+                a[0 * 4 + row] * b[col * 4 + 0] +
+                a[1 * 4 + row] * b[col * 4 + 1] +
+                a[2 * 4 + row] * b[col * 4 + 2] +
+                a[3 * 4 + row] * b[col * 4 + 3];
+        }
+    }
+    for (int i = 0; i < 16; ++i) {
+        out[i] = tmp[i];
+    }
+}
+
+void QuestMrIdentityMat4(float* m) {
+    for (int i = 0; i < 16; ++i) {
+        m[i] = 0.0f;
+    }
+    m[0] = m[5] = m[10] = m[15] = 1.0f;
+}
+
+void QuestMrRebuildJointPalette() {
+    if (gQuestMrJointPalette.size() != 96 * 16) {
+        gQuestMrJointPalette.assign(96 * 16, 0.0f);
+        for (int joint = 0; joint < 96; ++joint) {
+            gQuestMrJointPalette[joint * 16 + 0] = 1.0f;
+            gQuestMrJointPalette[joint * 16 + 5] = 1.0f;
+            gQuestMrJointPalette[joint * 16 + 10] = 1.0f;
+            gQuestMrJointPalette[joint * 16 + 15] = 1.0f;
+        }
+    }
+    const int count = static_cast<int>(gQuestMrJoints.size());
+    std::vector<char> done(static_cast<size_t>(count), 0);
+    for (int pass = 0; pass < count; ++pass) {
+        for (int joint = 0; joint < count; ++joint) {
+            if (done[static_cast<size_t>(joint)]) {
+                continue;
+            }
+            QuestMrJoint& node = gQuestMrJoints[static_cast<size_t>(joint)];
+            if (node.parent >= 0 &&
+                (node.parent >= count || !done[static_cast<size_t>(node.parent)])) {
+                continue;
+            }
+            if (node.parent < 0) {
+                for (int i = 0; i < 16; ++i) {
+                    node.world[i] = node.local[i];
+                }
+            } else {
+                QuestMrMulMat4(
+                    gQuestMrJoints[static_cast<size_t>(node.parent)].world, node.local, node.world);
+            }
+            float* palette = &gQuestMrJointPalette[joint * 16];
+            QuestMrMulMat4(node.world, node.inverseBind, palette);
+            done[static_cast<size_t>(joint)] = 1;
+        }
+    }
+}
+'''
+if helpers_old not in text:
+    raise SystemExit('v1.3.0 joint helper anchor missing')
+text = text.replace(helpers_old, helpers_new, 1)
+
+create_old = '''    gQuestMrJointUbo = 0;
+    gQuestMrJointPalette.clear();'''
+create_new = '''    gQuestMrJointUbo = 0;
+    gQuestMrJointPalette.clear();
+    gQuestMrJoints.clear();
+    gQuestMrPoseJoint = -1;
+    gQuestMrPoseActive = false;'''
+if create_old not in text:
+    raise SystemExit('v1.3.0 scene-create joint anchor missing')
+text = text.replace(create_old, create_new, 1)
+
+destroy_old = '''    gQuestMrJointPalette.clear();
+    const long long stamp = gQuestMrImportedMesh.loadedStamp;'''
+destroy_new = '''    gQuestMrJointPalette.clear();
+    gQuestMrJoints.clear();
+    gQuestMrPoseJoint = -1;
+    gQuestMrPoseActive = false;
+    const long long stamp = gQuestMrImportedMesh.loadedStamp;'''
+if destroy_old not in text:
+    raise SystemExit('v1.3.0 joint destroy anchor missing')
+text = text.replace(destroy_old, destroy_new, 1)
+
+decl_old = '''    std::vector<int> skinPaletteBase(static_cast<size_t>(data->skins_count), -1);
+    int paletteCursor = 0;'''
+decl_new = '''    std::vector<int> skinPaletteBase(static_cast<size_t>(data->skins_count), -1);
+    std::vector<QuestMrJoint> loadedJoints;
+    int paletteCursor = 0;'''
+if decl_old not in text:
+    raise SystemExit('v1.3.0 skin cursor anchor missing')
+text = text.replace(decl_old, decl_new, 1)
+
+capture_old = '''    ALOGV(
+        "QuestMR v1.2.0 skin palette joints=%d skins=%zu",
+        paletteCursor,
+        data->skins_count);
+'''
+capture_new = r'''    ALOGV(
+        "QuestMR v1.2.0 skin palette joints=%d skins=%zu",
+        paletteCursor,
+        data->skins_count);
+
+    loadedJoints.resize(static_cast<size_t>(std::max(0, paletteCursor)));
+    for (cgltf_size skinIndex = 0; skinIndex < data->skins_count; ++skinIndex) {
+        const int base = skinPaletteBase[static_cast<size_t>(skinIndex)];
+        if (base < 0) {
+            continue;
+        }
+        const cgltf_skin& skin = data->skins[skinIndex];
+        for (cgltf_size jointIndex = 0; jointIndex < skin.joints_count; ++jointIndex) {
+            const cgltf_node* jointNode = skin.joints[jointIndex];
+            QuestMrJoint& stored = loadedJoints[static_cast<size_t>(base + static_cast<int>(jointIndex))];
+            QuestMrIdentityMat4(stored.bindLocal);
+            QuestMrIdentityMat4(stored.local);
+            QuestMrIdentityMat4(stored.inverseBind);
+            if (jointNode == nullptr) {
+                continue;
+            }
+            cgltf_node_transform_local(jointNode, stored.bindLocal);
+            int parentJoint = -1;
+            if (jointNode->parent != nullptr) {
+                for (cgltf_size parentIndex = 0; parentIndex < skin.joints_count; ++parentIndex) {
+                    if (skin.joints[parentIndex] == jointNode->parent) {
+                        parentJoint = base + static_cast<int>(parentIndex);
+                        break;
+                    }
+                }
+            }
+            stored.parent = parentJoint;
+            if (parentJoint < 0 && jointNode->parent != nullptr) {
+                cgltf_float parentWorld[16];
+                cgltf_node_transform_world(jointNode->parent, parentWorld);
+                float folded[16];
+                QuestMrMulMat4(parentWorld, stored.bindLocal, folded);
+                for (int i = 0; i < 16; ++i) {
+                    stored.bindLocal[i] = folded[i];
+                }
+            }
+            for (int i = 0; i < 16; ++i) {
+                stored.local[i] = stored.bindLocal[i];
+            }
+            if (skin.inverse_bind_matrices != nullptr &&
+                jointIndex < skin.inverse_bind_matrices->count) {
+                cgltf_accessor_read_float(
+                    skin.inverse_bind_matrices, jointIndex, stored.inverseBind, 16);
+            }
+        }
+    }
+    ALOGV("QuestMR v1.3.0 live joints=%zu", loadedJoints.size());
+'''
+if capture_old not in text:
+    raise SystemExit('v1.3.0 joint capture anchor missing')
+text = text.replace(capture_old, capture_new, 1)
+
+commit_old = '''    gQuestMrImportedMesh.loadedStamp = stamp;
+    gQuestMrImportedMesh.loaded = true;'''
+commit_new = '''    gQuestMrImportedMesh.loadedStamp = stamp;
+    gQuestMrJoints = std::move(loadedJoints);
+    gQuestMrPoseJoint = -1;
+    gQuestMrPoseActive = false;
+    QuestMrRebuildJointPalette();
+    gQuestMrImportedMesh.loaded = true;'''
+if commit_old not in text:
+    raise SystemExit('v1.3.0 joint commit anchor missing')
+text = text.replace(commit_old, commit_new, 1)
+
+pose_old = '''        if (gQuestMrJointUbo == 0) {
+            GL(glGenBuffers(1, &gQuestMrJointUbo));
+        }'''
+pose_new = r'''        if (!modelGrabbed && gQuestMrPoseActive && gQuestMrPoseHand >= 0 && gQuestMrPoseHand < 2 &&
+            handActive[gQuestMrPoseHand] && QuestMrTriggerDownForHand(gQuestMrPoseHand) &&
+            gQuestMrPoseJoint >= 0 &&
+            gQuestMrPoseJoint < static_cast<int>(gQuestMrJoints.size())) {
+            const Matrix4f& nowPose = handPose[gQuestMrPoseHand];
+            const float startForwardX = -gQuestMrPoseHandStart.M[0][2];
+            const float startForwardY = -gQuestMrPoseHandStart.M[1][2];
+            const float startForwardZ = -gQuestMrPoseHandStart.M[2][2];
+            const float nowForwardX = -nowPose.M[0][2];
+            const float nowForwardY = -nowPose.M[1][2];
+            const float nowForwardZ = -nowPose.M[2][2];
+            float yaw = std::atan2(nowForwardX, nowForwardZ) - std::atan2(startForwardX, startForwardZ);
+            if (yaw > 3.14159265f) {
+                yaw -= 6.2831853f;
+            } else if (yaw < -3.14159265f) {
+                yaw += 6.2831853f;
+            }
+            const float startPitch = std::asin(std::max(-1.0f, std::min(1.0f, startForwardY)));
+            const float nowPitch = std::asin(std::max(-1.0f, std::min(1.0f, nowForwardY)));
+            const float pitch = nowPitch - startPitch;
+            const float cy = std::cos(yaw);
+            const float sy = std::sin(yaw);
+            const float cx = std::cos(pitch);
+            const float sx = std::sin(pitch);
+            float rotY[16];
+            float rotX[16];
+            float spin[16];
+            QuestMrIdentityMat4(rotY);
+            QuestMrIdentityMat4(rotX);
+            rotY[0] = cy;
+            rotY[2] = -sy;
+            rotY[8] = sy;
+            rotY[10] = cy;
+            rotX[5] = cx;
+            rotX[6] = sx;
+            rotX[9] = -sx;
+            rotX[10] = cx;
+            QuestMrMulMat4(rotY, rotX, spin);
+            QuestMrJoint& posed = gQuestMrJoints[static_cast<size_t>(gQuestMrPoseJoint)];
+            QuestMrMulMat4(gQuestMrPoseLocalStart, spin, posed.local);
+            QuestMrRebuildJointPalette();
+        } else {
+            gQuestMrPoseActive = false;
+            int bestJoint = -1;
+            int bestHand = -1;
+            float bestDistance = 0.08f * 0.08f;
+            if (!modelGrabbed && !gQuestMrJoints.empty()) {
+                for (int hand = 0; hand < 2; ++hand) {
+                    if (!handActive[hand] || !QuestMrTriggerDownForHand(hand) ||
+                        (panelGrabbed && hand == panelGrabHand)) {
+                        continue;
+                    }
+                    const Matrix4f tip = handPose[hand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+                    for (int joint = 0; joint < static_cast<int>(gQuestMrJoints.size()); ++joint) {
+                        const float* world = gQuestMrJoints[static_cast<size_t>(joint)].world;
+                        const float gx = importedModel.M[0][0] * world[12] +
+                            importedModel.M[0][1] * world[13] +
+                            importedModel.M[0][2] * world[14] + importedModel.M[0][3];
+                        const float gy = importedModel.M[1][0] * world[12] +
+                            importedModel.M[1][1] * world[13] +
+                            importedModel.M[1][2] * world[14] + importedModel.M[1][3];
+                        const float gz = importedModel.M[2][0] * world[12] +
+                            importedModel.M[2][1] * world[13] +
+                            importedModel.M[2][2] * world[14] + importedModel.M[2][3];
+                        const float dx = tip.M[0][3] - gx;
+                        const float dy = tip.M[1][3] - gy;
+                        const float dz = tip.M[2][3] - gz;
+                        const float distance = dx * dx + dy * dy + dz * dz;
+                        if (distance < bestDistance) {
+                            bestDistance = distance;
+                            bestJoint = joint;
+                            bestHand = hand;
+                        }
+                    }
+                }
+            }
+            if (bestJoint >= 0) {
+                gQuestMrPoseJoint = bestJoint;
+                gQuestMrPoseHand = bestHand;
+                gQuestMrPoseActive = true;
+                gQuestMrPoseHandStart = handPose[bestHand];
+                const float* local = gQuestMrJoints[static_cast<size_t>(bestJoint)].local;
+                for (int i = 0; i < 16; ++i) {
+                    gQuestMrPoseLocalStart[i] = local[i];
+                }
+            }
+        }
+
+        if (gQuestMrJointUbo == 0) {
+            GL(glGenBuffers(1, &gQuestMrJointUbo));
+        }'''
+if pose_old not in text:
+    raise SystemExit('v1.3.0 pose insertion anchor missing')
+text = text.replace(pose_old, pose_new, 1)
+
+bones_old = '''        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::PBR_MODE),
+            0.0f));
+        GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+    }'''
+bones_new = r'''        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::PBR_MODE),
+            0.0f));
+        if (!gQuestMrJoints.empty()) {
+            GL(glVertexAttrib4f(VERTEX_ATTRIBUTE_LOCATION_JOINTS, 0.0f, 0.0f, 0.0f, 0.0f));
+            GL(glVertexAttrib4f(VERTEX_ATTRIBUTE_LOCATION_WEIGHTS, 0.0f, 0.0f, 0.0f, 0.0f));
+            GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                1.0f));
+            for (int joint = 0; joint < static_cast<int>(gQuestMrJoints.size()); ++joint) {
+                const float* world = gQuestMrJoints[static_cast<size_t>(joint)].world;
+                const bool selected = joint == gQuestMrPoseJoint;
+                const float marker = selected ? 0.045f : 0.025f;
+                const Matrix4f jointModel = importedModel *
+                    Matrix4f::Translation(world[12], world[13], world[14]) *
+                    Matrix4f::Scaling(marker, marker, marker);
+                GL(glUniform3f(
+                    scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+                    selected ? 1.0f : 0.15f,
+                    selected ? 0.78f : 0.75f,
+                    selected ? 0.15f : 0.95f));
+                GL(glUniformMatrix4fv(
+                    scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+                    1,
+                    GL_TRUE,
+                    &jointModel.M[0][0]));
+                GL(glDrawElements(GL_TRIANGLES, scene.Box.GetIndexCount(), GL_UNSIGNED_SHORT, NULL));
+            }
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                0.0f));
+        }
+        GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+    }'''
+if bones_old not in text:
+    raise SystemExit('v1.3.0 bone marker anchor missing')
+text = text.replace(bones_old, bones_new, 1)
+
+cpp.write_text(text)
+print('v1.3.0 live joint palette: ON')
+print('v1.3.0 trigger pose + bone markers: ON')
