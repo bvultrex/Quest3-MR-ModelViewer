@@ -1,0 +1,445 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.3.1: skeleton overlay in room-sized markers, drawn on top of the mesh.
+# Trigger grabs the nearest joint and swings it with the hand, like a handle.
+
+globals_old = '''float gQuestMrPoseLocalStart[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+Matrix4f gQuestMrPoseHandStart;
+'''
+globals_new = '''float gQuestMrPoseLocalStart[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+float gQuestMrPoseWorldStart[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+float gQuestMrPoseTipStart[3] = {0, 0, 0};
+Matrix4f gQuestMrPoseHandStart;
+'''
+if globals_old not in text:
+    raise SystemExit('v1.3.1 pose global anchor missing')
+text = text.replace(globals_old, globals_new, 1)
+
+helper_old = '''            float* palette = &gQuestMrJointPalette[joint * 16];
+            QuestMrMulMat4(node.world, node.inverseBind, palette);
+            done[static_cast<size_t>(joint)] = 1;
+        }
+    }
+}
+'''
+helper_new = r'''            float* palette = &gQuestMrJointPalette[joint * 16];
+            QuestMrMulMat4(node.world, node.inverseBind, palette);
+            done[static_cast<size_t>(joint)] = 1;
+        }
+    }
+}
+
+bool QuestMrInvertMat4(const float* m, float* out) {
+    float a[4][8];
+    for (int col = 0; col < 4; ++col) {
+        for (int row = 0; row < 4; ++row) {
+            a[row][col] = m[col * 4 + row];
+            a[row][col + 4] = row == col ? 1.0f : 0.0f;
+        }
+    }
+    for (int col = 0; col < 4; ++col) {
+        int pivot = col;
+        float best = std::fabs(a[col][col]);
+        for (int row = col + 1; row < 4; ++row) {
+            const float value = std::fabs(a[row][col]);
+            if (value > best) {
+                best = value;
+                pivot = row;
+            }
+        }
+        if (best < 1.0e-8f) {
+            return false;
+        }
+        if (pivot != col) {
+            for (int k = 0; k < 8; ++k) {
+                const float swap = a[col][k];
+                a[col][k] = a[pivot][k];
+                a[pivot][k] = swap;
+            }
+        }
+        const float divisor = a[col][col];
+        for (int k = 0; k < 8; ++k) {
+            a[col][k] /= divisor;
+        }
+        for (int row = 0; row < 4; ++row) {
+            if (row == col) {
+                continue;
+            }
+            const float factor = a[row][col];
+            for (int k = 0; k < 8; ++k) {
+                a[row][k] -= factor * a[col][k];
+            }
+        }
+    }
+    for (int col = 0; col < 4; ++col) {
+        for (int row = 0; row < 4; ++row) {
+            out[col * 4 + row] = a[row][col + 4];
+        }
+    }
+    return true;
+}
+
+void QuestMrRotationFromTo(float ax, float ay, float az, float bx, float by, float bz, float gain, float* out) {
+    QuestMrIdentityMat4(out);
+    const float al = std::sqrt(ax * ax + ay * ay + az * az);
+    const float bl = std::sqrt(bx * bx + by * by + bz * bz);
+    if (al < 1.0e-5f || bl < 1.0e-5f) {
+        return;
+    }
+    ax /= al;
+    ay /= al;
+    az /= al;
+    bx /= bl;
+    by /= bl;
+    bz /= bl;
+    float cx = ay * bz - az * by;
+    float cy = az * bx - ax * bz;
+    float cz = ax * by - ay * bx;
+    const float cosine = ax * bx + ay * by + az * bz;
+    const float sine = std::sqrt(cx * cx + cy * cy + cz * cz);
+    if (sine < 1.0e-5f) {
+        if (cosine > 0.0f) {
+            return;
+        }
+        float ox = 1.0f;
+        float oy = 0.0f;
+        float oz = 0.0f;
+        if (std::fabs(ax) > 0.9f) {
+            ox = 0.0f;
+            oy = 1.0f;
+        }
+        cx = oy * az - oz * ay;
+        cy = oz * ax - ox * az;
+        cz = ox * ay - oy * ax;
+        const float kl = std::sqrt(cx * cx + cy * cy + cz * cz);
+        if (kl < 1.0e-5f) {
+            return;
+        }
+        cx /= kl;
+        cy /= kl;
+        cz /= kl;
+        const float half = 3.14159265f * gain;
+        const float s = std::sin(half);
+        const float c = std::cos(half);
+        const float oc = 1.0f - c;
+        out[0] = c + cx * cx * oc;
+        out[1] = s * cz + cy * cx * oc;
+        out[2] = -s * cy + cz * cx * oc;
+        out[4] = -s * cz + cx * cy * oc;
+        out[5] = c + cy * cy * oc;
+        out[6] = s * cx + cz * cy * oc;
+        out[8] = s * cy + cx * cz * oc;
+        out[9] = -s * cx + cy * cz * oc;
+        out[10] = c + cz * cz * oc;
+        return;
+    }
+    cx /= sine;
+    cy /= sine;
+    cz /= sine;
+    const float angle = std::atan2(sine, cosine) * gain;
+    const float s = std::sin(angle);
+    const float c = std::cos(angle);
+    const float oc = 1.0f - c;
+    out[0] = c + cx * cx * oc;
+    out[1] = s * cz + cy * cx * oc;
+    out[2] = -s * cy + cz * cx * oc;
+    out[4] = -s * cz + cx * cy * oc;
+    out[5] = c + cy * cy * oc;
+    out[6] = s * cx + cz * cy * oc;
+    out[8] = s * cy + cx * cz * oc;
+    out[9] = -s * cx + cy * cz * oc;
+    out[10] = c + cz * cz * oc;
+}
+'''
+if helper_old not in text:
+    raise SystemExit('v1.3.1 joint math anchor missing')
+text = text.replace(helper_old, helper_new, 1)
+
+pose_old = '''        if (!modelGrabbed && gQuestMrPoseActive && gQuestMrPoseHand >= 0 && gQuestMrPoseHand < 2 &&
+            handActive[gQuestMrPoseHand] && QuestMrTriggerDownForHand(gQuestMrPoseHand) &&
+            gQuestMrPoseJoint >= 0 &&
+            gQuestMrPoseJoint < static_cast<int>(gQuestMrJoints.size())) {'''
+if pose_old not in text:
+    raise SystemExit('v1.3.1 pose block anchor missing')
+pose_end = '''            if (bestJoint >= 0) {
+                gQuestMrPoseJoint = bestJoint;
+                gQuestMrPoseHand = bestHand;
+                gQuestMrPoseActive = true;
+                gQuestMrPoseHandStart = handPose[bestHand];
+                const float* local = gQuestMrJoints[static_cast<size_t>(bestJoint)].local;
+                for (int i = 0; i < 16; ++i) {
+                    gQuestMrPoseLocalStart[i] = local[i];
+                }
+            }
+        }
+'''
+if pose_end not in text:
+    raise SystemExit('v1.3.1 pose block end missing')
+start = text.find(pose_old)
+end = text.find(pose_end, start)
+if start < 0 or end < 0:
+    raise SystemExit('v1.3.1 pose span missing')
+end += len(pose_end)
+pose_new = r'''        const Matrix4f poseInverse = importedModel.Inverted();
+        auto roomToModel = [&](float x, float y, float z, float& ox, float& oy, float& oz) {
+            ox = poseInverse.M[0][0] * x + poseInverse.M[0][1] * y + poseInverse.M[0][2] * z +
+                poseInverse.M[0][3];
+            oy = poseInverse.M[1][0] * x + poseInverse.M[1][1] * y + poseInverse.M[1][2] * z +
+                poseInverse.M[1][3];
+            oz = poseInverse.M[2][0] * x + poseInverse.M[2][1] * y + poseInverse.M[2][2] * z +
+                poseInverse.M[2][3];
+        };
+        int hoverJoint = -1;
+        int hoverHand = -1;
+        float hoverDistance = 0.14f * 0.14f;
+        if (!modelGrabbed && !gQuestMrJoints.empty()) {
+            for (int hand = 0; hand < 2; ++hand) {
+                if (!handActive[hand] || (panelGrabbed && hand == panelGrabHand)) {
+                    continue;
+                }
+                const Matrix4f tip = handPose[hand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+                for (int joint = 0; joint < static_cast<int>(gQuestMrJoints.size()); ++joint) {
+                    const float* world = gQuestMrJoints[static_cast<size_t>(joint)].world;
+                    const float gx = importedModel.M[0][0] * world[12] + importedModel.M[0][1] * world[13] +
+                        importedModel.M[0][2] * world[14] + importedModel.M[0][3];
+                    const float gy = importedModel.M[1][0] * world[12] + importedModel.M[1][1] * world[13] +
+                        importedModel.M[1][2] * world[14] + importedModel.M[1][3];
+                    const float gz = importedModel.M[2][0] * world[12] + importedModel.M[2][1] * world[13] +
+                        importedModel.M[2][2] * world[14] + importedModel.M[2][3];
+                    const float dx = tip.M[0][3] - gx;
+                    const float dy = tip.M[1][3] - gy;
+                    const float dz = tip.M[2][3] - gz;
+                    const float distance = dx * dx + dy * dy + dz * dz;
+                    if (distance < hoverDistance) {
+                        hoverDistance = distance;
+                        hoverJoint = joint;
+                        hoverHand = hand;
+                    }
+                }
+            }
+        }
+        const bool poseTrigger = gQuestMrPoseActive && gQuestMrPoseHand >= 0 && gQuestMrPoseHand < 2 &&
+            handActive[gQuestMrPoseHand] && QuestMrTriggerDownForHand(gQuestMrPoseHand) &&
+            !modelGrabbed && gQuestMrPoseJoint >= 0 &&
+            gQuestMrPoseJoint < static_cast<int>(gQuestMrJoints.size());
+        if (poseTrigger) {
+            const Matrix4f tip = handPose[gQuestMrPoseHand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+            float tipX = 0.0f;
+            float tipY = 0.0f;
+            float tipZ = 0.0f;
+            roomToModel(tip.M[0][3], tip.M[1][3], tip.M[2][3], tipX, tipY, tipZ);
+            const float pivotX = gQuestMrPoseWorldStart[12];
+            const float pivotY = gQuestMrPoseWorldStart[13];
+            const float pivotZ = gQuestMrPoseWorldStart[14];
+            float spin[16];
+            QuestMrRotationFromTo(
+                gQuestMrPoseTipStart[0] - pivotX,
+                gQuestMrPoseTipStart[1] - pivotY,
+                gQuestMrPoseTipStart[2] - pivotZ,
+                tipX - pivotX,
+                tipY - pivotY,
+                tipZ - pivotZ,
+                0.45f,
+                spin);
+            float toward[16];
+            float around[16];
+            float spun[16];
+            float newWorld[16];
+            QuestMrIdentityMat4(toward);
+            QuestMrIdentityMat4(around);
+            toward[12] = -pivotX;
+            toward[13] = -pivotY;
+            toward[14] = -pivotZ;
+            around[12] = pivotX;
+            around[13] = pivotY;
+            around[14] = pivotZ;
+            QuestMrMulMat4(spin, toward, spun);
+            QuestMrMulMat4(around, spun, newWorld);
+            QuestMrMulMat4(newWorld, gQuestMrPoseWorldStart, spun);
+            QuestMrJoint& posed = gQuestMrJoints[static_cast<size_t>(gQuestMrPoseJoint)];
+            if (posed.parent < 0) {
+                for (int i = 0; i < 16; ++i) {
+                    posed.local[i] = spun[i];
+                }
+            } else {
+                float parentInverse[16];
+                if (QuestMrInvertMat4(
+                        gQuestMrJoints[static_cast<size_t>(posed.parent)].world, parentInverse)) {
+                    QuestMrMulMat4(parentInverse, spun, posed.local);
+                }
+            }
+            QuestMrRebuildJointPalette();
+        } else {
+            gQuestMrPoseActive = false;
+            if (!modelGrabbed && hoverJoint >= 0 && hoverHand >= 0 &&
+                QuestMrTriggerDownForHand(hoverHand) && hoverDistance <= 0.12f * 0.12f) {
+                gQuestMrPoseJoint = hoverJoint;
+                gQuestMrPoseHand = hoverHand;
+                gQuestMrPoseActive = true;
+                const float* world = gQuestMrJoints[static_cast<size_t>(hoverJoint)].world;
+                for (int i = 0; i < 16; ++i) {
+                    gQuestMrPoseWorldStart[i] = world[i];
+                }
+                const Matrix4f tip = handPose[hoverHand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+                roomToModel(tip.M[0][3], tip.M[1][3], tip.M[2][3], gQuestMrPoseTipStart[0], gQuestMrPoseTipStart[1], gQuestMrPoseTipStart[2]);
+            } else {
+                gQuestMrPoseJoint = hoverJoint;
+            }
+        }
+'''
+text = text[:start] + pose_new + text[end:]
+
+bones_old = '''        if (!gQuestMrJoints.empty()) {
+            GL(glVertexAttrib4f(VERTEX_ATTRIBUTE_LOCATION_JOINTS, 0.0f, 0.0f, 0.0f, 0.0f));
+            GL(glVertexAttrib4f(VERTEX_ATTRIBUTE_LOCATION_WEIGHTS, 0.0f, 0.0f, 0.0f, 0.0f));
+            GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                1.0f));
+'''
+bones_new = r'''        if (!gQuestMrJoints.empty()) {
+            // QuestMR v1.3.1: draw the rig in front of the mesh, at a fixed room size.
+            GL(glVertexAttrib4f(VERTEX_ATTRIBUTE_LOCATION_JOINTS, 0.0f, 0.0f, 0.0f, 0.0f));
+            GL(glVertexAttrib4f(VERTEX_ATTRIBUTE_LOCATION_WEIGHTS, 0.0f, 0.0f, 0.0f, 0.0f));
+            GL(glDisable(GL_DEPTH_TEST));
+            GL(glBindVertexArray(scene.Box.GetVertexArrayObject()));
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                1.0f));
+            const float modelAxis = std::sqrt(
+                importedModel.M[0][0] * importedModel.M[0][0] +
+                importedModel.M[1][0] * importedModel.M[1][0] +
+                importedModel.M[2][0] * importedModel.M[2][0]);
+            const float roomScale = modelAxis > 1.0e-5f ? modelAxis : 1.0f;
+            const auto drawMarker = [&](const Matrix4f& model, float r, float g, float b) {
+                GL(glUniform3f(
+                    scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+                    r,
+                    g,
+                    b));
+                GL(glUniformMatrix4fv(
+                    scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+                    1,
+                    GL_TRUE,
+                    &model.M[0][0]));
+                GL(glDrawElements(GL_TRIANGLES, scene.Box.GetIndexCount(), GL_UNSIGNED_SHORT, NULL));
+            };
+            for (int joint = 0; joint < static_cast<int>(gQuestMrJoints.size()); ++joint) {
+                const QuestMrJoint& node = gQuestMrJoints[static_cast<size_t>(joint)];
+                if (node.parent < 0) {
+                    continue;
+                }
+                const float* parent = gQuestMrJoints[static_cast<size_t>(node.parent)].world;
+                const float ax = parent[12];
+                const float ay = parent[13];
+                const float az = parent[14];
+                const float bx = node.world[12];
+                const float by = node.world[13];
+                const float bz = node.world[14];
+                const float dx = bx - ax;
+                const float dy = by - ay;
+                const float dz = bz - az;
+                const float length = std::sqrt(dx * dx + dy * dy + dz * dz);
+                if (length < 1.0e-5f) {
+                    continue;
+                }
+                float zx = dx / length;
+                float zy = dy / length;
+                float zz = dz / length;
+                float ux = 0.0f;
+                float uy = 1.0f;
+                float uz = 0.0f;
+                if (std::fabs(zy) > 0.85f) {
+                    ux = 1.0f;
+                    uy = 0.0f;
+                }
+                float xx = uy * zz - uz * zy;
+                float xy = uz * zx - ux * zz;
+                float xz = ux * zy - uy * zx;
+                const float xl = std::sqrt(xx * xx + xy * xy + xz * xz);
+                if (xl < 1.0e-5f) {
+                    continue;
+                }
+                xx /= xl;
+                xy /= xl;
+                xz /= xl;
+                const float yx = zy * xz - zz * xy;
+                const float yy = zz * xx - zx * xz;
+                const float yz = zx * xy - zy * xx;
+                const bool selected = joint == gQuestMrPoseJoint || node.parent == gQuestMrPoseJoint;
+                const float thick = (selected ? 0.012f : 0.006f) / roomScale;
+                Matrix4f bone;
+                bone.M[0][0] = xx * thick;
+                bone.M[1][0] = xy * thick;
+                bone.M[2][0] = xz * thick;
+                bone.M[3][0] = 0.0f;
+                bone.M[0][1] = yx * thick;
+                bone.M[1][1] = yy * thick;
+                bone.M[2][1] = yz * thick;
+                bone.M[3][1] = 0.0f;
+                bone.M[0][2] = zx * length;
+                bone.M[1][2] = zy * length;
+                bone.M[2][2] = zz * length;
+                bone.M[3][2] = 0.0f;
+                bone.M[0][3] = (ax + bx) * 0.5f;
+                bone.M[1][3] = (ay + by) * 0.5f;
+                bone.M[2][3] = (az + bz) * 0.5f;
+                bone.M[3][3] = 1.0f;
+                drawMarker(
+                    importedModel * bone,
+                    selected ? 1.0f : 0.20f,
+                    selected ? 0.72f : 0.85f,
+                    selected ? 0.20f : 1.0f);
+            }
+'''
+if bones_old not in text:
+    raise SystemExit('v1.3.1 bone draw anchor missing')
+text = text.replace(bones_old, bones_new, 1)
+
+marker_old = '''                const bool selected = joint == gQuestMrPoseJoint;
+                const float marker = selected ? 0.045f : 0.025f;
+                const Matrix4f jointModel = importedModel *
+                    Matrix4f::Translation(world[12], world[13], world[14]) *
+                    Matrix4f::Scaling(marker, marker, marker);
+                GL(glUniform3f(
+                    scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+                    selected ? 1.0f : 0.15f,
+                    selected ? 0.78f : 0.75f,
+                    selected ? 0.15f : 0.95f));
+                GL(glUniformMatrix4fv(
+                    scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+                    1,
+                    GL_TRUE,
+                    &jointModel.M[0][0]));
+                GL(glDrawElements(GL_TRIANGLES, scene.Box.GetIndexCount(), GL_UNSIGNED_SHORT, NULL));
+            }
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                0.0f));
+        }'''
+marker_new = '''                const bool selected = joint == gQuestMrPoseJoint;
+                const float marker = (selected ? 0.028f : 0.016f) / roomScale;
+                const Matrix4f jointModel = importedModel *
+                    Matrix4f::Translation(world[12], world[13], world[14]) *
+                    Matrix4f::Scaling(marker, marker, marker);
+                drawMarker(
+                    jointModel,
+                    selected ? 1.0f : 0.15f,
+                    selected ? 0.82f : 0.90f,
+                    selected ? 0.15f : 1.0f);
+            }
+            GL(glUniform1f(
+                scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_MODE),
+                0.0f));
+            GL(glEnable(GL_DEPTH_TEST));
+        }'''
+if marker_old not in text:
+    raise SystemExit('v1.3.1 marker size anchor missing')
+text = text.replace(marker_old, marker_new, 1)
+
+cpp.write_text(text)
+print('v1.3.1 overlay skeleton: ON')
+print('v1.3.1 hand-handle joint swing: ON')
