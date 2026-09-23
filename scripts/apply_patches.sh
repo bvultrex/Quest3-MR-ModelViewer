@@ -48,6 +48,7 @@ run_fragmented_patch patch_v056
 run_fragmented_patch patch_v057
 run_fragmented_patch patch_v058
 run_fragmented_patch patch_v059
+run_fragmented_patch patch_v060
 
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
@@ -98,6 +99,7 @@ grep -n 'QuestMR v1.3.0 live joints=' "$SRC"
 grep -n 'QuestMR v1.3.1: draw the rig in front of the mesh' "$SRC"
 grep -n '"BONES"' "$SRC"
 grep -n 'QuestMR v1.3.3: thin transparent rings' "$SRC"
+grep -n 'QuestMR v1.4.0 animation channels=' "$SRC"
 grep -n 'gQuestMrPoseActive' "$SRC"
 grep -n 'glBindBufferBase(GL_UNIFORM_BUFFER, 3, gQuestMrJointUbo)' "$SRC"
 grep -n 'VERTEX_ATTRIBUTE_LOCATION_JOINTS' "$SRC"

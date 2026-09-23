@@ -1,0 +1,783 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.4.0: two-bone IK for hands and feet, plus a PLAY button for the GLB clip.
+# Grabbing a knee or elbow still swings the parent bone rigidly.
+
+if '#include <chrono>' not in text:
+    inc = '#include <cstdint>\n'
+    if inc not in text:
+        raise SystemExit('v1.4.0 chrono include anchor missing')
+    text = text.replace(inc, inc + '#include <chrono>\n', 1)
+
+struct_old = '''struct QuestMrJoint {
+    int parent = -1;
+    float bindLocal[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};'''
+struct_new = '''struct QuestMrAnimChannel {
+    int joint = -1;
+    int components = 0;
+    std::vector<float> times;
+    std::vector<float> values;
+};
+
+struct QuestMrJoint {
+    int parent = -1;
+    float bindT[3] = {0.0f, 0.0f, 0.0f};
+    float bindR[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    float bindS[3] = {1.0f, 1.0f, 1.0f};
+    float bindLocal[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};'''
+if struct_old not in text:
+    raise SystemExit('v1.4.0 joint struct anchor missing')
+text = text.replace(struct_old, struct_new, 1)
+
+state_old = '''std::vector<QuestMrJoint> gQuestMrJoints;
+int gQuestMrPoseJoint = -1;
+int gQuestMrPoseDriven = -1;'''
+state_new = '''std::vector<QuestMrJoint> gQuestMrJoints;
+std::vector<QuestMrAnimChannel> gQuestMrAnimChannels;
+float gQuestMrAnimDuration = 0.0f;
+float gQuestMrAnimTime = 0.0f;
+bool gQuestMrAnimPlaying = false;
+int gQuestMrPoseJoint = -1;
+int gQuestMrPoseDriven = -1;
+bool gQuestMrPoseTwoBone = false;
+int gQuestMrPoseRoot = -1;
+float gQuestMrPoseRootWorld[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+float gQuestMrPoseMidLocal[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+float gQuestMrPoseEndLocal[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+float gQuestMrPoseEndStart[3] = {0, 0, 0};
+float gQuestMrPoseMidStart[3] = {0, 0, 0};
+float gQuestMrPoseRootStart[3] = {0, 0, 0};
+float gQuestMrPosePole[3] = {0, 1, 0};
+float gQuestMrPoseLen1 = 1.0f;
+float gQuestMrPoseLen2 = 1.0f;'''
+if state_old not in text:
+    raise SystemExit('v1.4.0 pose state anchor missing')
+text = text.replace(state_old, state_new, 1)
+
+fn_anchor = '''    gQuestMrRingIndexCount = static_cast<GLsizei>(indices.size());
+}
+'''
+fn_body = r'''    gQuestMrRingIndexCount = static_cast<GLsizei>(indices.size());
+}
+
+void QuestMrRememberBind(QuestMrJoint& joint) {
+    const float* m = joint.bindLocal;
+    joint.bindT[0] = m[12];
+    joint.bindT[1] = m[13];
+    joint.bindT[2] = m[14];
+    const float sx = std::sqrt(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+    const float sy = std::sqrt(m[4] * m[4] + m[5] * m[5] + m[6] * m[6]);
+    const float sz = std::sqrt(m[8] * m[8] + m[9] * m[9] + m[10] * m[10]);
+    joint.bindS[0] = sx > 1.0e-8f ? sx : 1.0f;
+    joint.bindS[1] = sy > 1.0e-8f ? sy : 1.0f;
+    joint.bindS[2] = sz > 1.0e-8f ? sz : 1.0f;
+    float r[16];
+    QuestMrIdentityMat4(r);
+    r[0] = m[0] / joint.bindS[0];
+    r[1] = m[1] / joint.bindS[0];
+    r[2] = m[2] / joint.bindS[0];
+    r[4] = m[4] / joint.bindS[1];
+    r[5] = m[5] / joint.bindS[1];
+    r[6] = m[6] / joint.bindS[1];
+    r[8] = m[8] / joint.bindS[2];
+    r[9] = m[9] / joint.bindS[2];
+    r[10] = m[10] / joint.bindS[2];
+    const float trace = r[0] + r[5] + r[10];
+    float q[4];
+    if (trace > 0.0f) {
+        const float s = std::sqrt(trace + 1.0f) * 2.0f;
+        q[3] = 0.25f * s;
+        q[0] = (r[6] - r[9]) / s;
+        q[1] = (r[8] - r[2]) / s;
+        q[2] = (r[1] - r[4]) / s;
+    } else if (r[0] > r[5] && r[0] > r[10]) {
+        const float s = std::sqrt(1.0f + r[0] - r[5] - r[10]) * 2.0f;
+        q[3] = (r[6] - r[9]) / s;
+        q[0] = 0.25f * s;
+        q[1] = (r[1] + r[4]) / s;
+        q[2] = (r[8] + r[2]) / s;
+    } else if (r[5] > r[10]) {
+        const float s = std::sqrt(1.0f + r[5] - r[0] - r[10]) * 2.0f;
+        q[3] = (r[8] - r[2]) / s;
+        q[0] = (r[1] + r[4]) / s;
+        q[1] = 0.25f * s;
+        q[2] = (r[6] + r[9]) / s;
+    } else {
+        const float s = std::sqrt(1.0f + r[10] - r[0] - r[5]) * 2.0f;
+        q[3] = (r[1] - r[4]) / s;
+        q[0] = (r[8] + r[2]) / s;
+        q[1] = (r[6] + r[9]) / s;
+        q[2] = 0.25f * s;
+    }
+    const float ql = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    if (ql > 1.0e-8f) {
+        joint.bindR[0] = q[0] / ql;
+        joint.bindR[1] = q[1] / ql;
+        joint.bindR[2] = q[2] / ql;
+        joint.bindR[3] = q[3] / ql;
+    }
+}
+
+void QuestMrComposeLocal(const float* t, const float* q, const float* s, float* out) {
+    const float x = q[0];
+    const float y = q[1];
+    const float z = q[2];
+    const float w = q[3];
+    const float x2 = x + x;
+    const float y2 = y + y;
+    const float z2 = z + z;
+    const float xx = x * x2;
+    const float xy = x * y2;
+    const float xz = x * z2;
+    const float yy = y * y2;
+    const float yz = y * z2;
+    const float zz = z * z2;
+    const float wx = w * x2;
+    const float wy = w * y2;
+    const float wz = w * z2;
+    QuestMrIdentityMat4(out);
+    out[0] = (1.0f - (yy + zz)) * s[0];
+    out[1] = (xy + wz) * s[0];
+    out[2] = (xz - wy) * s[0];
+    out[4] = (xy - wz) * s[1];
+    out[5] = (1.0f - (xx + zz)) * s[1];
+    out[6] = (yz + wx) * s[1];
+    out[8] = (xz + wy) * s[2];
+    out[9] = (yz - wx) * s[2];
+    out[10] = (1.0f - (xx + yy)) * s[2];
+    out[12] = t[0];
+    out[13] = t[1];
+    out[14] = t[2];
+}
+
+void QuestMrSlerp(const float* a, const float* b, float t, float* out) {
+    float dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+    float bx = b[0];
+    float by = b[1];
+    float bz = b[2];
+    float bw = b[3];
+    if (dot < 0.0f) {
+        dot = -dot;
+        bx = -bx;
+        by = -by;
+        bz = -bz;
+        bw = -bw;
+    }
+    float w1;
+    float w2;
+    if (dot > 0.9995f) {
+        w1 = 1.0f - t;
+        w2 = t;
+    } else {
+        const float theta = std::acos(std::max(-1.0f, std::min(1.0f, dot)));
+        const float s = std::sin(theta);
+        w1 = std::sin((1.0f - t) * theta) / s;
+        w2 = std::sin(t * theta) / s;
+    }
+    out[0] = a[0] * w1 + bx * w2;
+    out[1] = a[1] * w1 + by * w2;
+    out[2] = a[2] * w1 + bz * w2;
+    out[3] = a[3] * w1 + bw * w2;
+    const float ql = std::sqrt(out[0] * out[0] + out[1] * out[1] + out[2] * out[2] + out[3] * out[3]);
+    if (ql > 1.0e-8f) {
+        out[0] /= ql;
+        out[1] /= ql;
+        out[2] /= ql;
+        out[3] /= ql;
+    }
+}
+
+void QuestMrSampleAnimation(float time) {
+    const int count = static_cast<int>(gQuestMrJoints.size());
+    if (count <= 0 || gQuestMrAnimChannels.empty()) {
+        return;
+    }
+    std::vector<float> translation(static_cast<size_t>(count * 3));
+    std::vector<float> rotation(static_cast<size_t>(count * 4));
+    std::vector<float> scale(static_cast<size_t>(count * 3));
+    for (int joint = 0; joint < count; ++joint) {
+        const QuestMrJoint& node = gQuestMrJoints[static_cast<size_t>(joint)];
+        translation[static_cast<size_t>(joint * 3 + 0)] = node.bindT[0];
+        translation[static_cast<size_t>(joint * 3 + 1)] = node.bindT[1];
+        translation[static_cast<size_t>(joint * 3 + 2)] = node.bindT[2];
+        rotation[static_cast<size_t>(joint * 4 + 0)] = node.bindR[0];
+        rotation[static_cast<size_t>(joint * 4 + 1)] = node.bindR[1];
+        rotation[static_cast<size_t>(joint * 4 + 2)] = node.bindR[2];
+        rotation[static_cast<size_t>(joint * 4 + 3)] = node.bindR[3];
+        scale[static_cast<size_t>(joint * 3 + 0)] = node.bindS[0];
+        scale[static_cast<size_t>(joint * 3 + 1)] = node.bindS[1];
+        scale[static_cast<size_t>(joint * 3 + 2)] = node.bindS[2];
+    }
+    for (const QuestMrAnimChannel& channel : gQuestMrAnimChannels) {
+        if (channel.joint < 0 || channel.joint >= count || channel.times.empty() ||
+            channel.components < 3) {
+            continue;
+        }
+        const size_t keys = channel.times.size();
+        size_t index = 0;
+        float blend = 0.0f;
+        if (time <= channel.times.front()) {
+            index = 0;
+        } else if (time >= channel.times.back()) {
+            index = keys - 1;
+        } else {
+            while (index + 1 < keys && channel.times[index + 1] < time) {
+                ++index;
+            }
+            const float t0 = channel.times[index];
+            const float t1 = channel.times[std::min(index + 1, keys - 1)];
+            blend = t1 > t0 ? (time - t0) / (t1 - t0) : 0.0f;
+        }
+        const size_t i0 = index * static_cast<size_t>(channel.components);
+        const size_t i1 = std::min(index + 1, keys - 1) * static_cast<size_t>(channel.components);
+        if (channel.components == 4) {
+            float q[4];
+            QuestMrSlerp(&channel.values[i0], &channel.values[i1], blend, q);
+            rotation[static_cast<size_t>(channel.joint * 4 + 0)] = q[0];
+            rotation[static_cast<size_t>(channel.joint * 4 + 1)] = q[1];
+            rotation[static_cast<size_t>(channel.joint * 4 + 2)] = q[2];
+            rotation[static_cast<size_t>(channel.joint * 4 + 3)] = q[3];
+        } else {
+            for (int c = 0; c < 3; ++c) {
+                const float a = channel.values[i0 + static_cast<size_t>(c)];
+                const float b = channel.values[i1 + static_cast<size_t>(c)];
+                translation[static_cast<size_t>(channel.joint * 3 + c)] = a + (b - a) * blend;
+            }
+        }
+    }
+    for (int joint = 0; joint < count; ++joint) {
+        QuestMrComposeLocal(
+            &translation[static_cast<size_t>(joint * 3)],
+            &rotation[static_cast<size_t>(joint * 4)],
+            &scale[static_cast<size_t>(joint * 3)],
+            gQuestMrJoints[static_cast<size_t>(joint)].local);
+    }
+}
+
+int QuestMrChildDepth(int joint) {
+    int best = 0;
+    const int count = static_cast<int>(gQuestMrJoints.size());
+    for (int child = 0; child < count; ++child) {
+        if (gQuestMrJoints[static_cast<size_t>(child)].parent != joint) {
+            continue;
+        }
+        best = std::max(best, 1 + QuestMrChildDepth(child));
+        if (best > 8) {
+            return best;
+        }
+    }
+    return best;
+}
+
+bool QuestMrJointWantsTwoBone(int joint) {
+    const int count = static_cast<int>(gQuestMrJoints.size());
+    if (joint < 0 || joint >= count) {
+        return false;
+    }
+    const int mid = gQuestMrJoints[static_cast<size_t>(joint)].parent;
+    if (mid < 0 || mid >= count) {
+        return false;
+    }
+    const int root = gQuestMrJoints[static_cast<size_t>(mid)].parent;
+    if (root < 0 || root >= count) {
+        return false;
+    }
+    // Hands, feet and toes bend the middle joint. Knees and elbows still swing
+    // the whole lower limb because they have a longer chain under them.
+    return QuestMrChildDepth(joint) <= 1;
+}
+
+void QuestMrWriteLocalFromWorld(int joint, const float* newWorld) {
+    QuestMrJoint& node = gQuestMrJoints[static_cast<size_t>(joint)];
+    if (node.parent < 0) {
+        for (int i = 0; i < 16; ++i) {
+            node.local[i] = newWorld[i];
+        }
+        return;
+    }
+    float parentInverse[16];
+    if (QuestMrInvertMat4(gQuestMrJoints[static_cast<size_t>(node.parent)].world, parentInverse)) {
+        QuestMrMulMat4(parentInverse, newWorld, node.local);
+    }
+}
+
+void QuestMrSpinWorld(const float* world, float px, float py, float pz, const float* spin, float* out) {
+    float toward[16];
+    float around[16];
+    float tmp[16];
+    QuestMrIdentityMat4(toward);
+    QuestMrIdentityMat4(around);
+    toward[12] = -px;
+    toward[13] = -py;
+    toward[14] = -pz;
+    around[12] = px;
+    around[13] = py;
+    around[14] = pz;
+    QuestMrMulMat4(spin, toward, tmp);
+    QuestMrMulMat4(around, tmp, out);
+    QuestMrMulMat4(out, world, tmp);
+    for (int i = 0; i < 16; ++i) {
+        out[i] = tmp[i];
+    }
+}
+
+bool QuestMrApplyTwoBone(float tipX, float tipY, float tipZ) {
+    if (!gQuestMrPoseTwoBone || gQuestMrPoseRoot < 0) {
+        return false;
+    }
+    const int root = gQuestMrPoseRoot;
+    const int mid = gQuestMrPoseDriven;
+    const int end = gQuestMrPoseJoint;
+    const int count = static_cast<int>(gQuestMrJoints.size());
+    if (root < 0 || mid < 0 || end < 0 || root >= count || mid >= count || end >= count) {
+        return false;
+    }
+    const float targetX = gQuestMrPoseEndStart[0] + (tipX - gQuestMrPoseTipStart[0]);
+    const float targetY = gQuestMrPoseEndStart[1] + (tipY - gQuestMrPoseTipStart[1]);
+    const float targetZ = gQuestMrPoseEndStart[2] + (tipZ - gQuestMrPoseTipStart[2]);
+    float dirX = targetX - gQuestMrPoseRootStart[0];
+    float dirY = targetY - gQuestMrPoseRootStart[1];
+    float dirZ = targetZ - gQuestMrPoseRootStart[2];
+    float dist = std::sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+    if (dist < 1.0e-5f) {
+        return true;
+    }
+    const float reach = gQuestMrPoseLen1 + gQuestMrPoseLen2 - 1.0e-4f;
+    const float fold = std::fabs(gQuestMrPoseLen1 - gQuestMrPoseLen2) + 1.0e-4f;
+    dist = std::max(fold, std::min(reach, dist));
+    dirX /= std::sqrt(
+        (targetX - gQuestMrPoseRootStart[0]) * (targetX - gQuestMrPoseRootStart[0]) +
+        (targetY - gQuestMrPoseRootStart[1]) * (targetY - gQuestMrPoseRootStart[1]) +
+        (targetZ - gQuestMrPoseRootStart[2]) * (targetZ - gQuestMrPoseRootStart[2]));
+    dirY /= std::sqrt(
+        (targetX - gQuestMrPoseRootStart[0]) * (targetX - gQuestMrPoseRootStart[0]) +
+        (targetY - gQuestMrPoseRootStart[1]) * (targetY - gQuestMrPoseRootStart[1]) +
+        (targetZ - gQuestMrPoseRootStart[2]) * (targetZ - gQuestMrPoseRootStart[2]));
+    dirZ /= std::sqrt(
+        (targetX - gQuestMrPoseRootStart[0]) * (targetX - gQuestMrPoseRootStart[0]) +
+        (targetY - gQuestMrPoseRootStart[1]) * (targetY - gQuestMrPoseRootStart[1]) +
+        (targetZ - gQuestMrPoseRootStart[2]) * (targetZ - gQuestMrPoseRootStart[2]));
+    const float denom = 2.0f * gQuestMrPoseLen1 * dist;
+    float cosUpper = denom > 1.0e-6f
+        ? (gQuestMrPoseLen1 * gQuestMrPoseLen1 + dist * dist - gQuestMrPoseLen2 * gQuestMrPoseLen2) / denom
+        : 1.0f;
+    cosUpper = std::max(-1.0f, std::min(1.0f, cosUpper));
+    const float height = gQuestMrPoseLen1 * cosUpper;
+    const float lateral = std::sqrt(std::max(0.0f, gQuestMrPoseLen1 * gQuestMrPoseLen1 - height * height));
+    float poleX = gQuestMrPosePole[0] - dirX * (gQuestMrPosePole[0] * dirX + gQuestMrPosePole[1] * dirY + gQuestMrPosePole[2] * dirZ);
+    float poleY = gQuestMrPosePole[1] - dirY * (gQuestMrPosePole[0] * dirX + gQuestMrPosePole[1] * dirY + gQuestMrPosePole[2] * dirZ);
+    float poleZ = gQuestMrPosePole[2] - dirZ * (gQuestMrPosePole[0] * dirX + gQuestMrPosePole[1] * dirY + gQuestMrPosePole[2] * dirZ);
+    float poleLen = std::sqrt(poleX * poleX + poleY * poleY + poleZ * poleZ);
+    if (poleLen < 1.0e-5f) {
+        const float ux = std::fabs(dirY) > 0.85f ? 1.0f : 0.0f;
+        const float uy = std::fabs(dirY) > 0.85f ? 0.0f : 1.0f;
+        poleX = uy * dirZ;
+        poleY = ux * dirZ - dirX * 0.0f;
+        poleZ = dirX * uy - dirY * ux;
+        poleY = 0.0f * dirZ - dirX * (std::fabs(dirY) > 0.85f ? 0.0f : 0.0f);
+        poleX = uy * dirZ - 0.0f * dirY;
+        poleY = 0.0f * dirX - ux * dirZ;
+        poleZ = ux * dirY - uy * dirX;
+        poleLen = std::sqrt(poleX * poleX + poleY * poleY + poleZ * poleZ);
+    }
+    if (poleLen < 1.0e-5f) {
+        return true;
+    }
+    poleX /= poleLen;
+    poleY /= poleLen;
+    poleZ /= poleLen;
+    const float midX = gQuestMrPoseRootStart[0] + dirX * height + poleX * lateral;
+    const float midY = gQuestMrPoseRootStart[1] + dirY * height + poleY * lateral;
+    const float midZ = gQuestMrPoseRootStart[2] + dirZ * height + poleZ * lateral;
+    const float endX = gQuestMrPoseRootStart[0] + dirX * dist;
+    const float endY = gQuestMrPoseRootStart[1] + dirY * dist;
+    const float endZ = gQuestMrPoseRootStart[2] + dirZ * dist;
+    float spin[16];
+    float newRoot[16];
+    QuestMrRotationFromTo(
+        gQuestMrPoseMidStart[0] - gQuestMrPoseRootStart[0],
+        gQuestMrPoseMidStart[1] - gQuestMrPoseRootStart[1],
+        gQuestMrPoseMidStart[2] - gQuestMrPoseRootStart[2],
+        midX - gQuestMrPoseRootStart[0],
+        midY - gQuestMrPoseRootStart[1],
+        midZ - gQuestMrPoseRootStart[2],
+        1.0f,
+        spin);
+    QuestMrSpinWorld(
+        gQuestMrPoseRootWorld,
+        gQuestMrPoseRootStart[0], gQuestMrPoseRootStart[1], gQuestMrPoseRootStart[2],
+        spin, newRoot);
+    float newMid[16];
+    QuestMrMulMat4(newRoot, gQuestMrPoseMidLocal, newMid);
+    const float midNowX = newMid[12];
+    const float midNowY = newMid[13];
+    const float midNowZ = newMid[14];
+    float endAfter[16];
+    QuestMrMulMat4(newMid, gQuestMrPoseEndLocal, endAfter);
+    QuestMrRotationFromTo(
+        endAfter[12] - midNowX, endAfter[13] - midNowY, endAfter[14] - midNowZ,
+        endX - midNowX, endY - midNowY, endZ - midNowZ,
+        1.0f, spin);
+    float newMidBent[16];
+    QuestMrSpinWorld(newMid, midNowX, midNowY, midNowZ, spin, newMidBent);
+    QuestMrWriteLocalFromWorld(root, newRoot);
+    for (int i = 0; i < 16; ++i) {
+        gQuestMrJoints[static_cast<size_t>(root)].world[i] = newRoot[i];
+    }
+    float rootInverse[16];
+    if (!QuestMrInvertMat4(newRoot, rootInverse)) {
+        return true;
+    }
+    QuestMrMulMat4(rootInverse, newMidBent, gQuestMrJoints[static_cast<size_t>(mid)].local);
+    return true;
+}
+'''
+if fn_anchor not in text:
+    raise SystemExit('v1.4.0 math insert anchor missing')
+text = text.replace(fn_anchor, fn_body, 1)
+
+bind_old = '''            for (int i = 0; i < 16; ++i) {
+                stored.local[i] = stored.bindLocal[i];
+            }'''
+bind_new = '''            for (int i = 0; i < 16; ++i) {
+                stored.local[i] = stored.bindLocal[i];
+            }
+            QuestMrRememberBind(stored);'''
+if bind_old not in text:
+    raise SystemExit('v1.4.0 bind decompose anchor missing')
+text = text.replace(bind_old, bind_new, 1)
+
+decl_old = '''    std::vector<QuestMrJoint> loadedJoints;
+    int paletteCursor = 0;'''
+decl_new = '''    std::vector<QuestMrJoint> loadedJoints;
+    std::vector<QuestMrAnimChannel> loadedChannels;
+    float loadedAnimDuration = 0.0f;
+    int paletteCursor = 0;'''
+if decl_old not in text:
+    raise SystemExit('v1.4.0 anim decl anchor missing')
+text = text.replace(decl_old, decl_new, 1)
+
+anim_old = '''    ALOGV("QuestMR v1.3.0 live joints=%zu", loadedJoints.size());
+'''
+anim_new = r'''    ALOGV("QuestMR v1.3.0 live joints=%zu", loadedJoints.size());
+
+    if (data->animations_count > 0) {
+        const cgltf_animation& anim = data->animations[0];
+        for (cgltf_size channelIndex = 0; channelIndex < anim.channels_count; ++channelIndex) {
+            const cgltf_animation_channel& channel = anim.channels[channelIndex];
+            if (channel.target_node == nullptr || channel.sampler == nullptr ||
+                channel.sampler->input == nullptr || channel.sampler->output == nullptr) {
+                continue;
+            }
+            if (channel.target_path != cgltf_animation_path_type_rotation &&
+                channel.target_path != cgltf_animation_path_type_translation) {
+                continue;
+            }
+            int joint = -1;
+            for (cgltf_size skinIndex = 0; skinIndex < data->skins_count && joint < 0; ++skinIndex) {
+                const int base = skinPaletteBase[static_cast<size_t>(skinIndex)];
+                if (base < 0) {
+                    continue;
+                }
+                const cgltf_skin& skin = data->skins[skinIndex];
+                for (cgltf_size jointIndex = 0; jointIndex < skin.joints_count; ++jointIndex) {
+                    if (skin.joints[jointIndex] == channel.target_node) {
+                        joint = base + static_cast<int>(jointIndex);
+                        break;
+                    }
+                }
+            }
+            if (joint < 0 || joint >= static_cast<int>(loadedJoints.size())) {
+                continue;
+            }
+            const cgltf_accessor* times = channel.sampler->input;
+            const cgltf_accessor* values = channel.sampler->output;
+            if (times->count == 0 || times->count != values->count || times->count > 8192) {
+                continue;
+            }
+            QuestMrAnimChannel stored;
+            stored.joint = joint;
+            stored.components = channel.target_path == cgltf_animation_path_type_rotation ? 4 : 3;
+            stored.times.resize(times->count);
+            stored.values.resize(times->count * static_cast<size_t>(stored.components));
+            for (cgltf_size key = 0; key < times->count; ++key) {
+                float timeValue = 0.0f;
+                cgltf_accessor_read_float(times, key, &timeValue, 1);
+                stored.times[key] = timeValue;
+                loadedAnimDuration = std::max(loadedAnimDuration, timeValue);
+                cgltf_accessor_read_float(
+                    values, key, &stored.values[key * static_cast<size_t>(stored.components)], stored.components);
+            }
+            loadedChannels.push_back(std::move(stored));
+        }
+    }
+    ALOGV(
+        "QuestMR v1.4.0 animation channels=%zu duration=%.3f",
+        loadedChannels.size(), loadedAnimDuration);
+'''
+if anim_old not in text:
+    raise SystemExit('v1.4.0 animation capture anchor missing')
+text = text.replace(anim_old, anim_new, 1)
+
+commit_old = '''    gQuestMrJoints = std::move(loadedJoints);
+    gQuestMrPoseJoint = -1;
+    gQuestMrPoseActive = false;
+    QuestMrRebuildJointPalette();'''
+commit_new = '''    gQuestMrJoints = std::move(loadedJoints);
+    gQuestMrAnimChannels = std::move(loadedChannels);
+    gQuestMrAnimDuration = loadedAnimDuration;
+    gQuestMrAnimTime = 0.0f;
+    gQuestMrAnimPlaying = false;
+    gQuestMrPoseJoint = -1;
+    gQuestMrPoseActive = false;
+    gQuestMrPoseTwoBone = false;
+    QuestMrRebuildJointPalette();'''
+if commit_old not in text:
+    raise SystemExit('v1.4.0 animation commit anchor missing')
+text = text.replace(commit_old, commit_new, 1)
+
+clear_old = '''    gQuestMrJoints.clear();
+    gQuestMrPoseJoint = -1;
+    gQuestMrPoseActive = false;'''
+clear_new = '''    gQuestMrJoints.clear();
+    gQuestMrAnimChannels.clear();
+    gQuestMrAnimDuration = 0.0f;
+    gQuestMrAnimTime = 0.0f;
+    gQuestMrAnimPlaying = false;
+    gQuestMrPoseJoint = -1;
+    gQuestMrPoseActive = false;
+    gQuestMrPoseTwoBone = false;'''
+if clear_old not in text:
+    raise SystemExit('v1.4.0 anim clear anchor missing')
+text = text.replace(clear_old, clear_new)
+
+play_old = '''        const Matrix4f poseInverse = importedModel.Inverted();'''
+play_new = r'''        if (gQuestMrAnimPlaying && !gQuestMrPoseActive && gQuestMrAnimDuration > 0.0f &&
+            !gQuestMrAnimChannels.empty()) {
+            static double questMrAnimClock = -1.0;
+            const double now = std::chrono::duration<double>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (questMrAnimClock < 0.0) {
+                questMrAnimClock = now;
+            }
+            float step = static_cast<float>(now - questMrAnimClock);
+            questMrAnimClock = now;
+            if (step < 0.0f || step > 0.05f) {
+                step = 0.0f;
+            }
+            gQuestMrAnimTime += step;
+            if (gQuestMrAnimTime > gQuestMrAnimDuration) {
+                gQuestMrAnimTime = std::fmod(gQuestMrAnimTime, gQuestMrAnimDuration);
+            }
+            QuestMrSampleAnimation(gQuestMrAnimTime);
+            QuestMrRebuildJointPalette();
+        } else if (!gQuestMrAnimPlaying) {
+            static double questMrAnimClockReset = 0.0;
+            questMrAnimClockReset = -1.0;
+            (void)questMrAnimClockReset;
+        }
+
+        const Matrix4f poseInverse = importedModel.Inverted();'''
+if play_old not in text:
+    raise SystemExit('v1.4.0 playback anchor missing')
+text = text.replace(play_old, play_new, 1)
+
+# The clock reset above does not share state with the playback clock. Fold it into one static.
+text = text.replace(
+'''        if (gQuestMrAnimPlaying && !gQuestMrPoseActive && gQuestMrAnimDuration > 0.0f &&
+            !gQuestMrAnimChannels.empty()) {
+            static double questMrAnimClock = -1.0;
+            const double now = std::chrono::duration<double>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (questMrAnimClock < 0.0) {
+                questMrAnimClock = now;
+            }
+            float step = static_cast<float>(now - questMrAnimClock);
+            questMrAnimClock = now;
+            if (step < 0.0f || step > 0.05f) {
+                step = 0.0f;
+            }
+            gQuestMrAnimTime += step;
+            if (gQuestMrAnimTime > gQuestMrAnimDuration) {
+                gQuestMrAnimTime = std::fmod(gQuestMrAnimTime, gQuestMrAnimDuration);
+            }
+            QuestMrSampleAnimation(gQuestMrAnimTime);
+            QuestMrRebuildJointPalette();
+        } else if (!gQuestMrAnimPlaying) {
+            static double questMrAnimClockReset = 0.0;
+            questMrAnimClockReset = -1.0;
+            (void)questMrAnimClockReset;
+        }
+''',
+'''        static double questMrAnimClock = -1.0;
+        if (gQuestMrAnimPlaying && !gQuestMrPoseActive && gQuestMrAnimDuration > 0.0f &&
+            !gQuestMrAnimChannels.empty()) {
+            const double now = std::chrono::duration<double>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (questMrAnimClock < 0.0) {
+                questMrAnimClock = now;
+            }
+            float step = static_cast<float>(now - questMrAnimClock);
+            questMrAnimClock = now;
+            if (step < 0.0f || step > 0.05f) {
+                step = 0.0f;
+            }
+            gQuestMrAnimTime += step;
+            if (gQuestMrAnimTime > gQuestMrAnimDuration) {
+                gQuestMrAnimTime = std::fmod(gQuestMrAnimTime, gQuestMrAnimDuration);
+            }
+            QuestMrSampleAnimation(gQuestMrAnimTime);
+            QuestMrRebuildJointPalette();
+        } else {
+            questMrAnimClock = -1.0;
+        }
+''',
+1)
+
+grab_old = '''                const Matrix4f tip = handPose[hoverHand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+                roomToModel(
+                    tip.M[0][3], tip.M[1][3], tip.M[2][3],
+                    gQuestMrPoseTipStart[0], gQuestMrPoseTipStart[1], gQuestMrPoseTipStart[2]);'''
+grab_new = '''                const Matrix4f tip = handPose[hoverHand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+                roomToModel(
+                    tip.M[0][3], tip.M[1][3], tip.M[2][3],
+                    gQuestMrPoseTipStart[0], gQuestMrPoseTipStart[1], gQuestMrPoseTipStart[2]);
+                gQuestMrAnimPlaying = false;
+                gQuestMrPoseTwoBone = QuestMrJointWantsTwoBone(hoverJoint);
+                gQuestMrPoseRoot = -1;
+                if (gQuestMrPoseTwoBone) {
+                    const int end = hoverJoint;
+                    const int mid = gQuestMrJoints[static_cast<size_t>(end)].parent;
+                    const int root = gQuestMrJoints[static_cast<size_t>(mid)].parent;
+                    gQuestMrPoseRoot = root;
+                    const float* rootWorld = gQuestMrJoints[static_cast<size_t>(root)].world;
+                    const float* midWorld = gQuestMrJoints[static_cast<size_t>(mid)].world;
+                    const float* endWorld = gQuestMrJoints[static_cast<size_t>(end)].world;
+                    for (int i = 0; i < 16; ++i) {
+                        gQuestMrPoseRootWorld[i] = rootWorld[i];
+                        gQuestMrPoseMidLocal[i] = gQuestMrJoints[static_cast<size_t>(mid)].local[i];
+                        gQuestMrPoseEndLocal[i] = gQuestMrJoints[static_cast<size_t>(end)].local[i];
+                    }
+                    gQuestMrPoseRootStart[0] = rootWorld[12];
+                    gQuestMrPoseRootStart[1] = rootWorld[13];
+                    gQuestMrPoseRootStart[2] = rootWorld[14];
+                    gQuestMrPoseMidStart[0] = midWorld[12];
+                    gQuestMrPoseMidStart[1] = midWorld[13];
+                    gQuestMrPoseMidStart[2] = midWorld[14];
+                    gQuestMrPoseEndStart[0] = endWorld[12];
+                    gQuestMrPoseEndStart[1] = endWorld[13];
+                    gQuestMrPoseEndStart[2] = endWorld[14];
+                    const float upperX = gQuestMrPoseMidStart[0] - gQuestMrPoseRootStart[0];
+                    const float upperY = gQuestMrPoseMidStart[1] - gQuestMrPoseRootStart[1];
+                    const float upperZ = gQuestMrPoseMidStart[2] - gQuestMrPoseRootStart[2];
+                    const float lowerX = gQuestMrPoseEndStart[0] - gQuestMrPoseMidStart[0];
+                    const float lowerY = gQuestMrPoseEndStart[1] - gQuestMrPoseMidStart[1];
+                    const float lowerZ = gQuestMrPoseEndStart[2] - gQuestMrPoseMidStart[2];
+                    gQuestMrPoseLen1 = std::sqrt(upperX * upperX + upperY * upperY + upperZ * upperZ);
+                    gQuestMrPoseLen2 = std::sqrt(lowerX * lowerX + lowerY * lowerY + lowerZ * lowerZ);
+                    float axisX = gQuestMrPoseEndStart[0] - gQuestMrPoseRootStart[0];
+                    float axisY = gQuestMrPoseEndStart[1] - gQuestMrPoseRootStart[1];
+                    float axisZ = gQuestMrPoseEndStart[2] - gQuestMrPoseRootStart[2];
+                    const float axisLen = std::sqrt(axisX * axisX + axisY * axisY + axisZ * axisZ);
+                    if (axisLen > 1.0e-5f) {
+                        axisX /= axisLen;
+                        axisY /= axisLen;
+                        axisZ /= axisLen;
+                    }
+                    const float along = upperX * axisX + upperY * axisY + upperZ * axisZ;
+                    gQuestMrPosePole[0] = upperX - axisX * along;
+                    gQuestMrPosePole[1] = upperY - axisY * along;
+                    gQuestMrPosePole[2] = upperZ - axisZ * along;
+                }'''
+if grab_old not in text:
+    raise SystemExit('v1.4.0 grab anchor missing')
+text = text.replace(grab_old, grab_new, 1)
+
+text = text.replace(
+'''            } else {
+                gQuestMrPoseDriven = -1;''',
+'''            } else {
+                gQuestMrPoseTwoBone = false;
+                gQuestMrPoseDriven = -1;''',
+1)
+
+swing_old = '''            QuestMrRotationFromTo(
+                gQuestMrPoseTipStart[0] - pivotX,'''
+swing_new = '''            if (QuestMrApplyTwoBone(tipX, tipY, tipZ)) {
+                QuestMrRebuildJointPalette();
+            } else QuestMrRotationFromTo(
+                gQuestMrPoseTipStart[0] - pivotX,'''
+if swing_old not in text:
+    raise SystemExit('v1.4.0 two-bone branch anchor missing')
+text = text.replace(swing_old, swing_new, 1)
+
+# The else-if above is not valid: "else QuestMrRotationFromTo" needs a block.
+# Wrap the original swing by closing it after Rebuild. The original call is an
+# expression statement, so add braces properly instead.
+bad = '''            if (QuestMrApplyTwoBone(tipX, tipY, tipZ)) {
+                QuestMrRebuildJointPalette();
+            } else QuestMrRotationFromTo(
+                gQuestMrPoseTipStart[0] - pivotX,'''
+good = '''            if (QuestMrApplyTwoBone(tipX, tipY, tipZ)) {
+                QuestMrRebuildJointPalette();
+            } else {
+            QuestMrRotationFromTo(
+                gQuestMrPoseTipStart[0] - pivotX,'''
+if bad not in text:
+    raise SystemExit('v1.4.0 two-bone brace rewrite missing')
+text = text.replace(bad, good, 1)
+
+close_old = '''            QuestMrRebuildJointPalette();
+        } else {
+            gQuestMrPoseActive = false;'''
+close_new = '''            QuestMrRebuildJointPalette();
+            }
+        } else {
+            gQuestMrPoseActive = false;'''
+if close_old not in text:
+    raise SystemExit('v1.4.0 swing close anchor missing')
+text = text.replace(close_old, close_new, 1)
+
+label_old = '''    QuestMrAppendCenteredUiText(vertices, indices, 0.108f, -0.266f, -0.0060f, 0.00105f, "BONES");'''
+label_new = '''    QuestMrAppendCenteredUiText(vertices, indices, -0.108f, -0.266f, -0.0060f, 0.00105f, "PLAY");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.108f, -0.266f, -0.0060f, 0.00105f, "BONES");'''
+if label_old not in text:
+    raise SystemExit('v1.4.0 PLAY label anchor missing')
+text = text.replace(label_old, label_new, 1)
+
+touch_old = '''            const bool bonesTouchNow =
+                localX > 0.078f && localX < 0.150f && std::abs(localY - kResetY) < 0.018f;'''
+touch_new = '''            const bool playTouchNow =
+                localX < -0.078f && localX > -0.150f && std::abs(localY - kResetY) < 0.018f;
+            if (playTouchNow && uiTriggerPressed && gQuestMrAnimDuration > 0.0f) {
+                gQuestMrAnimPlaying = !gQuestMrAnimPlaying;
+            }
+
+            const bool bonesTouchNow =
+                localX > 0.078f && localX < 0.150f && std::abs(localY - kResetY) < 0.018f;'''
+if touch_old not in text:
+    raise SystemExit('v1.4.0 PLAY touch anchor missing')
+text = text.replace(touch_old, touch_new, 1)
+
+pad_old = '''        const Matrix4f bonesPad = panelPose *
+            Matrix4f::Translation(0.108f, kResetY, -0.0028f) *'''
+pad_new = '''        const Matrix4f playPad = panelPose *
+            Matrix4f::Translation(-0.108f, kResetY, -0.0028f) *
+            Matrix4f::Scaling(0.036f, 0.014f, 0.0015f);
+        drawUiRect(
+            playPad,
+            gQuestMrAnimPlaying ? 0.20f : 0.14f,
+            gQuestMrAnimPlaying ? 0.42f : 0.16f,
+            gQuestMrAnimPlaying ? 0.28f : 0.16f);
+        const Matrix4f bonesPad = panelPose *
+            Matrix4f::Translation(0.108f, kResetY, -0.0028f) *'''
+if pad_old not in text:
+    raise SystemExit('v1.4.0 PLAY pad anchor missing')
+text = text.replace(pad_old, pad_new, 1)
+
+cpp.write_text(text)
+print('v1.4.0 two-bone IK: ON')
+print('v1.4.0 animation player: ON')
