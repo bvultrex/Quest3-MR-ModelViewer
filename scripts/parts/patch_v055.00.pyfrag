@@ -1,0 +1,52 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.2.1
+# JointPalette linked onto binding 0, the same slot as SceneMatrices. UI vertices
+# do not enable joint attributes, so GLES feeds the default (0,0,0,1) and the
+# shader skinned every quad by a view/projection matrix. That is the tablet
+# parallax. Move the palette to binding 3 and force a zero weight when the
+# attribute array is disabled.
+
+ui_old = '''    if (panelInitialized) {
+        QuestMrBuildUiTextMesh();
+
+        const auto drawUiRect = [&](const Matrix4f& model, float r, float g, float b) {'''
+ui_new = r'''    if (panelInitialized) {
+        QuestMrBuildUiTextMesh();
+
+        // QuestMR v1.2.1: keep JointPalette off the SceneMatrices binding.
+        GL(glVertexAttrib4f(VERTEX_ATTRIBUTE_LOCATION_JOINTS, 0.0f, 0.0f, 0.0f, 0.0f));
+        GL(glVertexAttrib4f(VERTEX_ATTRIBUTE_LOCATION_WEIGHTS, 0.0f, 0.0f, 0.0f, 0.0f));
+        GLint questMrProgram = 0;
+        GL(glGetIntegerv(GL_CURRENT_PROGRAM, &questMrProgram));
+        if (questMrProgram != 0) {
+            const GLuint jointBlock = glGetUniformBlockIndex(
+                static_cast<GLuint>(questMrProgram), "JointPalette");
+            if (jointBlock != GL_INVALID_INDEX) {
+                GL(glUniformBlockBinding(static_cast<GLuint>(questMrProgram), jointBlock, 3));
+            }
+        }
+
+        const auto drawUiRect = [&](const Matrix4f& model, float r, float g, float b) {'''
+if ui_old not in text:
+    raise SystemExit('v1.2.1 UI joint-binding anchor missing')
+text = text.replace(ui_old, ui_new, 1)
+
+bind_old = 'GL(glBindBufferBase(GL_UNIFORM_BUFFER, 1, gQuestMrJointUbo));'
+bind_new = 'GL(glBindBufferBase(GL_UNIFORM_BUFFER, 3, gQuestMrJointUbo));'
+if bind_old not in text:
+    raise SystemExit('v1.2.1 joint buffer base anchor missing')
+text = text.replace(bind_old, bind_new, 1)
+
+block_old = 'GL(glUniformBlockBinding(static_cast<GLuint>(skinProgram), jointBlock, 1));'
+block_new = 'GL(glUniformBlockBinding(static_cast<GLuint>(skinProgram), jointBlock, 3));'
+if block_old not in text:
+    raise SystemExit('v1.2.1 joint block binding anchor missing')
+text = text.replace(block_old, block_new, 1)
+
+cpp.write_text(text)
+print('v1.2.1 JointPalette binding 3: ON')
+print('v1.2.1 UI vertex weights forced to zero: ON')
