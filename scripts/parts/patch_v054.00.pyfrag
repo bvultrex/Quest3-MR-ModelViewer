@@ -74,7 +74,9 @@ text = text.replace(destroy_old, destroy_new, 1)
 
 palette_old = '''    std::vector<QuestMrImportedVertex> vertices;
     std::vector<uint32_t> indices;
-    float minP[3] = {'''
+    vertices.reserve(std::min<size_t>(kMaxVertices, 65536));
+    indices.reserve(std::min<size_t>(kMaxIndices, 196608));
+'''
 palette_new = r'''    gQuestMrJointPalette.assign(96 * 16, 0.0f);
     for (int joint = 0; joint < 96; ++joint) {
         gQuestMrJointPalette[joint * 16 + 0] = 1.0f;
@@ -125,7 +127,9 @@ palette_new = r'''    gQuestMrJointPalette.assign(96 * 16, 0.0f);
 
     std::vector<QuestMrImportedVertex> vertices;
     std::vector<uint32_t> indices;
-    float minP[3] = {'''
+    vertices.reserve(std::min<size_t>(kMaxVertices, 65536));
+    indices.reserve(std::min<size_t>(kMaxIndices, 196608));
+'''
 if palette_old not in text:
     raise SystemExit('v1.2.0 palette insertion anchor missing')
 text = text.replace(palette_old, palette_new, 1)
