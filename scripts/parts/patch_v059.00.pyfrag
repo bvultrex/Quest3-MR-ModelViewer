@@ -1,0 +1,261 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.3.3: joint cues are thin transparent rings. The BONES toggle was ignoring
+# the click whenever the pointer was already hovering the button.
+
+click_old = '''            if (bonesTouchNow && uiTriggerPressed && !skeletonTouchPrev) {
+                skeletonVisible = !skeletonVisible;
+            }'''
+click_new = '''            if (bonesTouchNow && uiTriggerPressed) {
+                skeletonVisible = !skeletonVisible;
+            }'''
+if click_old not in text:
+    raise SystemExit('v1.3.3 BONES click anchor missing')
+text = text.replace(click_old, click_new, 1)
+
+ids_old = '''GLuint gQuestMrJointUbo = 0;
+
+struct QuestMrJoint {'''
+ids_new = '''GLuint gQuestMrJointUbo = 0;
+GLuint gQuestMrRingVao = 0;
+GLuint gQuestMrRingVbo = 0;
+GLuint gQuestMrRingIbo = 0;
+GLsizei gQuestMrRingIndexCount = 0;
+
+struct QuestMrJoint {'''
+if ids_old not in text:
+    raise SystemExit('v1.3.3 ring id anchor missing')
+text = text.replace(ids_old, ids_new, 1)
+
+fn_old = '''    const float angle = std::atan2(sine, cosine) * gain;
+    const float s = std::sin(angle);
+    const float c = std::cos(angle);
+    const float oc = 1.0f - c;
+    out[0] = c + cx * cx * oc;
+    out[1] = s * cz + cy * cx * oc;
+    out[2] = -s * cy + cz * cx * oc;
+    out[4] = -s * cz + cx * cy * oc;
+    out[5] = c + cy * cy * oc;
+    out[6] = s * cx + cz * cy * oc;
+    out[8] = s * cy + cx * cz * oc;
+    out[9] = -s * cx + cy * cz * oc;
+    out[10] = c + cz * cz * oc;
+}
+'''
+fn_new = fn_old + r'''
+void QuestMrEnsureJointRing() {
+    if (gQuestMrRingVao != 0) {
+        return;
+    }
+    constexpr int segments = 40;
+    std::vector<QuestMrImportedVertex> vertices;
+    std::vector<uint16_t> indices;
+    vertices.reserve(static_cast<size_t>(segments * 2));
+    indices.reserve(static_cast<size_t>(segments * 6));
+    constexpr float inner = 0.78f;
+    for (int i = 0; i < segments; ++i) {
+        const float angle = 6.2831853f * static_cast<float>(i) / static_cast<float>(segments);
+        const float c = std::cos(angle);
+        const float s = std::sin(angle);
+        QuestMrImportedVertex outer{};
+        QuestMrImportedVertex hole{};
+        outer.position[0] = c;
+        outer.position[1] = s;
+        hole.position[0] = c * inner;
+        hole.position[1] = s * inner;
+        outer.color[0] = hole.color[0] = 255;
+        outer.color[1] = hole.color[1] = 255;
+        outer.color[2] = hole.color[2] = 255;
+        outer.color[3] = hole.color[3] = 120;
+        vertices.push_back(outer);
+        vertices.push_back(hole);
+        const int next = (i + 1) % segments;
+        const uint16_t o0 = static_cast<uint16_t>(i * 2);
+        const uint16_t h0 = static_cast<uint16_t>(i * 2 + 1);
+        const uint16_t o1 = static_cast<uint16_t>(next * 2);
+        const uint16_t h1 = static_cast<uint16_t>(next * 2 + 1);
+        indices.push_back(o0);
+        indices.push_back(h0);
+        indices.push_back(o1);
+        indices.push_back(o1);
+        indices.push_back(h0);
+        indices.push_back(h1);
+    }
+    GL(glGenVertexArrays(1, &gQuestMrRingVao));
+    GL(glBindVertexArray(gQuestMrRingVao));
+    GL(glGenBuffers(1, &gQuestMrRingVbo));
+    GL(glBindBuffer(GL_ARRAY_BUFFER, gQuestMrRingVbo));
+    GL(glBufferData(
+        GL_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(vertices.size() * sizeof(QuestMrImportedVertex)),
+        vertices.data(),
+        GL_STATIC_DRAW));
+    GL(glGenBuffers(1, &gQuestMrRingIbo));
+    GL(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gQuestMrRingIbo));
+    GL(glBufferData(
+        GL_ELEMENT_ARRAY_BUFFER,
+        static_cast<GLsizeiptr>(indices.size() * sizeof(uint16_t)),
+        indices.data(),
+        GL_STATIC_DRAW));
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_POSITION));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_POSITION,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, position))));
+    GL(glEnableVertexAttribArray(VERTEX_ATTRIBUTE_LOCATION_COLOR));
+    GL(glVertexAttribPointer(
+        VERTEX_ATTRIBUTE_LOCATION_COLOR,
+        4,
+        GL_UNSIGNED_BYTE,
+        GL_TRUE,
+        sizeof(QuestMrImportedVertex),
+        reinterpret_cast<const void*>(offsetof(QuestMrImportedVertex, color))));
+    GL(glBindVertexArray(0));
+    gQuestMrRingIndexCount = static_cast<GLsizei>(indices.size());
+}
+'''
+if fn_old not in text:
+    raise SystemExit('v1.3.3 ring function anchor missing')
+text = text.replace(fn_old, fn_new, 1)
+
+create_old = '''    gQuestMrJointUbo = 0;
+    gQuestMrJointPalette.clear();'''
+create_new = '''    gQuestMrJointUbo = 0;
+    gQuestMrRingVao = 0;
+    gQuestMrRingVbo = 0;
+    gQuestMrRingIbo = 0;
+    gQuestMrRingIndexCount = 0;
+    gQuestMrJointPalette.clear();'''
+if create_old not in text:
+    raise SystemExit('v1.3.3 ring create anchor missing')
+text = text.replace(create_old, create_new, 1)
+
+destroy_old = '''    if (gQuestMrJointUbo != 0) {
+        GL(glDeleteBuffers(1, &gQuestMrJointUbo));
+        gQuestMrJointUbo = 0;
+    }'''
+destroy_new = '''    if (gQuestMrJointUbo != 0) {
+        GL(glDeleteBuffers(1, &gQuestMrJointUbo));
+        gQuestMrJointUbo = 0;
+    }
+    if (gQuestMrRingVao != 0) {
+        GL(glDeleteVertexArrays(1, &gQuestMrRingVao));
+        GL(glDeleteBuffers(1, &gQuestMrRingVbo));
+        GL(glDeleteBuffers(1, &gQuestMrRingIbo));
+        gQuestMrRingVao = 0;
+        gQuestMrRingVbo = 0;
+        gQuestMrRingIbo = 0;
+        gQuestMrRingIndexCount = 0;
+    }'''
+if destroy_old not in text:
+    raise SystemExit('v1.3.3 ring destroy anchor missing')
+text = text.replace(destroy_old, destroy_new, 1)
+
+span_start = text.find('            const auto drawMarker = [&](const Matrix4f& model, float r, float g, float b) {')
+span_end = text.find('                drawMarker(\n                    jointModel,', span_start)
+if span_start < 0 or span_end < 0:
+    raise SystemExit('v1.3.3 marker span missing')
+span_end = text.find('            }', span_end)
+if span_end < 0:
+    raise SystemExit('v1.3.3 marker span end missing')
+span_end += len('            }')
+ring_draw = r'''            // QuestMR v1.3.3: thin transparent rings, no bone sticks.
+            QuestMrEnsureJointRing();
+            GL(glBindVertexArray(gQuestMrRingVao));
+            GL(glEnable(GL_BLEND));
+            GL(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+            for (int joint = 0; joint < static_cast<int>(gQuestMrJoints.size()); ++joint) {
+                const QuestMrJoint& node = gQuestMrJoints[static_cast<size_t>(joint)];
+                float dx = 0.0f;
+                float dy = 1.0f;
+                float dz = 0.0f;
+                if (node.parent >= 0) {
+                    const float* parent = gQuestMrJoints[static_cast<size_t>(node.parent)].world;
+                    dx = node.world[12] - parent[12];
+                    dy = node.world[13] - parent[13];
+                    dz = node.world[14] - parent[14];
+                } else {
+                    for (int child = 0; child < static_cast<int>(gQuestMrJoints.size()); ++child) {
+                        if (gQuestMrJoints[static_cast<size_t>(child)].parent == joint) {
+                            const float* childWorld = gQuestMrJoints[static_cast<size_t>(child)].world;
+                            dx = childWorld[12] - node.world[12];
+                            dy = childWorld[13] - node.world[13];
+                            dz = childWorld[14] - node.world[14];
+                            break;
+                        }
+                    }
+                }
+                const float length = std::sqrt(dx * dx + dy * dy + dz * dz);
+                float zx = 0.0f;
+                float zy = 1.0f;
+                float zz = 0.0f;
+                if (length > 1.0e-5f) {
+                    zx = dx / length;
+                    zy = dy / length;
+                    zz = dz / length;
+                }
+                float ux = 1.0f;
+                float uy = 0.0f;
+                float uz = 0.0f;
+                if (std::fabs(zx) > 0.85f) {
+                    ux = 0.0f;
+                    uy = 1.0f;
+                }
+                float xx = uy * zz - uz * zy;
+                float xy = uz * zx - ux * zz;
+                float xz = ux * zy - uy * zx;
+                const float xl = std::sqrt(xx * xx + xy * xy + xz * xz);
+                if (xl < 1.0e-5f) {
+                    continue;
+                }
+                xx /= xl;
+                xy /= xl;
+                xz /= xl;
+                const float yx = zy * xz - zz * xy;
+                const float yy = zz * xx - zx * xz;
+                const float yz = zx * xy - zy * xx;
+                const bool selected = joint == gQuestMrPoseJoint;
+                const float radius = (selected ? 0.018f : 0.012f) / roomScale;
+                Matrix4f ring;
+                ring.M[0][0] = xx * radius;
+                ring.M[1][0] = xy * radius;
+                ring.M[2][0] = xz * radius;
+                ring.M[3][0] = 0.0f;
+                ring.M[0][1] = yx * radius;
+                ring.M[1][1] = yy * radius;
+                ring.M[2][1] = yz * radius;
+                ring.M[3][1] = 0.0f;
+                ring.M[0][2] = zx * radius;
+                ring.M[1][2] = zy * radius;
+                ring.M[2][2] = zz * radius;
+                ring.M[3][2] = 0.0f;
+                ring.M[0][3] = node.world[12];
+                ring.M[1][3] = node.world[13];
+                ring.M[2][3] = node.world[14];
+                ring.M[3][3] = 1.0f;
+                const Matrix4f ringModel = importedModel * ring;
+                GL(glUniform3f(
+                    scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::UI_COLOR),
+                    selected ? 0.86f : 0.62f,
+                    selected ? 0.70f : 0.66f,
+                    selected ? 0.42f : 0.70f));
+                GL(glUniformMatrix4fv(
+                    scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+                    1,
+                    GL_TRUE,
+                    &ringModel.M[0][0]));
+                GL(glDrawElements(GL_TRIANGLES, gQuestMrRingIndexCount, GL_UNSIGNED_SHORT, nullptr));
+            }
+            GL(glDisable(GL_BLEND));
+'''
+text = text[:span_start] + ring_draw + text[span_end:]
+
+cpp.write_text(text)
+print('v1.3.3 joint rings: ON')
+print('v1.3.3 BONES click: FIXED')
