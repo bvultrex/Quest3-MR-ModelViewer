@@ -147,10 +147,8 @@ if touch_old not in text:
     raise SystemExit('v1.3.2 BONES touch anchor missing')
 text = text.replace(touch_old, touch_new, 1)
 
-pad_old = '''            Matrix4f::Scaling(0.070f, 0.016f, 0.0015f);
-    drawUiRect(resetPad, 0.22f, 0.24f, 0.28f);'''
-pad_new = '''            Matrix4f::Scaling(0.070f, 0.016f, 0.0015f);
-    drawUiRect(resetPad, 0.22f, 0.24f, 0.28f);
+pad_old = 'drawUiRect(resetPad, 0.22f, 0.24f, 0.28f);'
+pad_new = '''drawUiRect(resetPad, 0.22f, 0.24f, 0.28f);
         const Matrix4f bonesPad = panelPose *
             Matrix4f::Translation(0.108f, kResetY, -0.0028f) *
             Matrix4f::Scaling(0.036f, 0.014f, 0.0015f);
