@@ -1,0 +1,84 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.4.1: the walk clip is in centimeters. The mesh only matches because the
+# character root scales by 0.01, and that scale was dropped when PLAY ran.
+
+struct_old = '''    float bindS[3] = {1.0f, 1.0f, 1.0f};
+    float bindLocal[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};'''
+struct_new = '''    float bindS[3] = {1.0f, 1.0f, 1.0f};
+    float external[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    bool foldParent = false;
+    float bindLocal[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};'''
+if struct_old not in text:
+    raise SystemExit('v1.4.1 joint field anchor missing')
+text = text.replace(struct_old, struct_new, 1)
+
+fold_old = '''            stored.parent = parentJoint;
+            if (parentJoint < 0 && jointNode->parent != nullptr) {
+                cgltf_float parentWorld[16];
+                cgltf_node_transform_world(jointNode->parent, parentWorld);
+                float folded[16];
+                QuestMrMulMat4(parentWorld, stored.bindLocal, folded);
+                for (int i = 0; i < 16; ++i) {
+                    stored.bindLocal[i] = folded[i];
+                }
+            }
+            for (int i = 0; i < 16; ++i) {
+                stored.local[i] = stored.bindLocal[i];
+            }
+            QuestMrRememberBind(stored);'''
+fold_new = '''            stored.parent = parentJoint;
+            QuestMrRememberBind(stored);
+            QuestMrIdentityMat4(stored.external);
+            stored.foldParent = false;
+            if (parentJoint < 0 && jointNode->parent != nullptr) {
+                cgltf_node_transform_world(jointNode->parent, stored.external);
+                stored.foldParent = true;
+                float folded[16];
+                QuestMrMulMat4(stored.external, stored.bindLocal, folded);
+                for (int i = 0; i < 16; ++i) {
+                    stored.bindLocal[i] = folded[i];
+                }
+            }
+            for (int i = 0; i < 16; ++i) {
+                stored.local[i] = stored.bindLocal[i];
+            }'''
+if fold_old not in text:
+    raise SystemExit('v1.4.1 parent fold anchor missing')
+text = text.replace(fold_old, fold_new, 1)
+
+sample_old = '''    for (int joint = 0; joint < count; ++joint) {
+        QuestMrComposeLocal(
+            &translation[static_cast<size_t>(joint * 3)],
+            &rotation[static_cast<size_t>(joint * 4)],
+            &scale[static_cast<size_t>(joint * 3)],
+            gQuestMrJoints[static_cast<size_t>(joint)].local);
+    }
+}'''
+sample_new = '''    for (int joint = 0; joint < count; ++joint) {
+        QuestMrJoint& node = gQuestMrJoints[static_cast<size_t>(joint)];
+        float nodeLocal[16];
+        QuestMrComposeLocal(
+            &translation[static_cast<size_t>(joint * 3)],
+            &rotation[static_cast<size_t>(joint * 4)],
+            &scale[static_cast<size_t>(joint * 3)],
+            nodeLocal);
+        if (node.foldParent) {
+            // QuestMR v1.4.1: keep the character-root scale on the animated hips.
+            QuestMrMulMat4(node.external, nodeLocal, node.local);
+        } else {
+            for (int i = 0; i < 16; ++i) {
+                node.local[i] = nodeLocal[i];
+            }
+        }
+    }
+}'''
+if sample_old not in text:
+    raise SystemExit('v1.4.1 sample compose anchor missing')
+text = text.replace(sample_old, sample_new, 1)
+
+cpp.write_text(text)
+print('v1.4.1 animation root scale: ON')
