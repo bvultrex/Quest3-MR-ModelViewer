@@ -1,0 +1,180 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.3.2: grab the knee to swing the thigh around the hip. BONES toggles the
+# overlay. The rig is thinner and less saturated.
+
+state_old = '''    static bool modelGrabbed = false;
+    static int modelGrabHand = -1;'''
+state_new = '''    static bool modelGrabbed = false;
+    static int modelGrabHand = -1;
+    static bool skeletonVisible = true;
+    static bool skeletonTouchPrev = false;'''
+if state_old not in text:
+    raise SystemExit('v1.3.2 skeleton state anchor missing')
+text = text.replace(state_old, state_new, 1)
+
+driven_old = 'int gQuestMrPoseJoint = -1;\n'
+driven_new = 'int gQuestMrPoseJoint = -1;\nint gQuestMrPoseDriven = -1;\n'
+if driven_old not in text:
+    raise SystemExit('v1.3.2 driven joint anchor missing')
+text = text.replace(driven_old, driven_new, 1)
+
+grab_old = '''            if (!modelGrabbed && hoverJoint >= 0 && hoverHand >= 0 &&
+                QuestMrTriggerDownForHand(hoverHand) && hoverDistance <= 0.12f * 0.12f) {
+                gQuestMrPoseJoint = hoverJoint;
+                gQuestMrPoseHand = hoverHand;
+                gQuestMrPoseActive = true;
+                const float* world = gQuestMrJoints[static_cast<size_t>(hoverJoint)].world;
+                for (int i = 0; i < 16; ++i) {
+                    gQuestMrPoseWorldStart[i] = world[i];
+                }
+                const Matrix4f tip = handPose[hoverHand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+                roomToModel(tip.M[0][3], tip.M[1][3], tip.M[2][3], gQuestMrPoseTipStart[0], gQuestMrPoseTipStart[1], gQuestMrPoseTipStart[2]);
+            } else {'''
+grab_new = '''            if (!modelGrabbed && hoverJoint >= 0 && hoverHand >= 0 &&
+                QuestMrTriggerDownForHand(hoverHand) && hoverDistance <= 0.12f * 0.12f) {
+                const int parent = gQuestMrJoints[static_cast<size_t>(hoverJoint)].parent;
+                gQuestMrPoseJoint = hoverJoint;
+                gQuestMrPoseDriven = parent >= 0 ? parent : hoverJoint;
+                gQuestMrPoseHand = hoverHand;
+                gQuestMrPoseActive = true;
+                const float* world = gQuestMrJoints[static_cast<size_t>(gQuestMrPoseDriven)].world;
+                for (int i = 0; i < 16; ++i) {
+                    gQuestMrPoseWorldStart[i] = world[i];
+                }
+                const Matrix4f tip = handPose[hoverHand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+                roomToModel(
+                    tip.M[0][3], tip.M[1][3], tip.M[2][3],
+                    gQuestMrPoseTipStart[0], gQuestMrPoseTipStart[1], gQuestMrPoseTipStart[2]);
+            } else {
+                gQuestMrPoseDriven = -1;'''
+if grab_old not in text:
+    raise SystemExit('v1.3.2 grab anchor missing')
+text = text.replace(grab_old, grab_new, 1)
+
+swing_old = '''                0.45f,
+                spin);'''
+swing_new = '''                1.0f,
+                spin);'''
+if swing_old not in text:
+    raise SystemExit('v1.3.2 swing gain anchor missing')
+text = text.replace(swing_old, swing_new, 1)
+
+posed_old = 'QuestMrJoint& posed = gQuestMrJoints[static_cast<size_t>(gQuestMrPoseJoint)];'
+posed_new = 'QuestMrJoint& posed = gQuestMrJoints[static_cast<size_t>(gQuestMrPoseDriven)];'
+if posed_old not in text:
+    raise SystemExit('v1.3.2 posed joint anchor missing')
+text = text.replace(posed_old, posed_new, 1)
+
+gate_old = '''            !modelGrabbed && gQuestMrPoseJoint >= 0 &&
+            gQuestMrPoseJoint < static_cast<int>(gQuestMrJoints.size());'''
+gate_new = '''            !modelGrabbed && gQuestMrPoseDriven >= 0 &&
+            gQuestMrPoseDriven < static_cast<int>(gQuestMrJoints.size());'''
+if gate_old not in text:
+    raise SystemExit('v1.3.2 pose gate anchor missing')
+text = text.replace(gate_old, gate_new, 1)
+
+draw_old = '        if (!gQuestMrJoints.empty()) {'
+draw_new = '        if (skeletonVisible && !gQuestMrJoints.empty()) {'
+if draw_old not in text:
+    raise SystemExit('v1.3.2 skeleton draw anchor missing')
+text = text.replace(draw_old, draw_new, 1)
+
+style_old = '''                const bool selected = joint == gQuestMrPoseJoint || node.parent == gQuestMrPoseJoint;
+                const float thick = (selected ? 0.012f : 0.006f) / roomScale;'''
+style_new = '''                const bool selected = joint == gQuestMrPoseJoint;
+                const float thick = (selected ? 0.0055f : 0.0032f) / roomScale;'''
+if style_old not in text:
+    raise SystemExit('v1.3.2 bone style anchor missing')
+text = text.replace(style_old, style_new, 1)
+
+bone_color_old = '''                drawMarker(
+                    importedModel * bone,
+                    selected ? 1.0f : 0.20f,
+                    selected ? 0.72f : 0.85f,
+                    selected ? 0.20f : 1.0f);'''
+bone_color_new = '''                drawMarker(
+                    importedModel * bone,
+                    selected ? 0.62f : 0.32f,
+                    selected ? 0.50f : 0.36f,
+                    selected ? 0.32f : 0.40f);'''
+if bone_color_old not in text:
+    raise SystemExit('v1.3.2 bone color anchor missing')
+text = text.replace(bone_color_old, bone_color_new, 1)
+
+marker_old = '''                const float marker = (selected ? 0.028f : 0.016f) / roomScale;'''
+marker_new = '''                const float marker = (selected ? 0.011f : 0.007f) / roomScale;'''
+if marker_old not in text:
+    raise SystemExit('v1.3.2 marker size anchor missing')
+text = text.replace(marker_old, marker_new, 1)
+
+marker_color_old = '''                drawMarker(
+                    jointModel,
+                    selected ? 1.0f : 0.15f,
+                    selected ? 0.82f : 0.90f,
+                    selected ? 0.15f : 1.0f);'''
+marker_color_new = '''                drawMarker(
+                    jointModel,
+                    selected ? 0.78f : 0.45f,
+                    selected ? 0.62f : 0.50f,
+                    selected ? 0.34f : 0.54f);'''
+if marker_color_old not in text:
+    raise SystemExit('v1.3.2 marker color anchor missing')
+text = text.replace(marker_color_old, marker_color_new, 1)
+
+label_old = 'QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.266f, -0.0060f, 0.00135f, "RESET ALL");'
+label_new = '''QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.266f, -0.0060f, 0.00135f, "RESET ALL");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.108f, -0.266f, -0.0060f, 0.00105f, "BONES");'''
+if label_old not in text:
+    raise SystemExit('v1.3.2 BONES label anchor missing')
+text = text.replace(label_old, label_new, 1)
+
+touch_old = '''            const bool resetTouchNow =
+                std::abs(localX) < 0.070f && std::abs(localY - kResetY) < 0.018f;'''
+touch_new = '''            const bool bonesTouchNow =
+                localX > 0.078f && localX < 0.150f && std::abs(localY - kResetY) < 0.018f;
+            if (bonesTouchNow && uiTriggerPressed && !skeletonTouchPrev) {
+                skeletonVisible = !skeletonVisible;
+            }
+            skeletonTouchPrev = bonesTouchNow;
+
+            const bool resetTouchNow =
+                std::abs(localX) < 0.070f && std::abs(localY - kResetY) < 0.018f;'''
+if touch_old not in text:
+    raise SystemExit('v1.3.2 BONES touch anchor missing')
+text = text.replace(touch_old, touch_new, 1)
+
+pad_old = '''            Matrix4f::Scaling(0.070f, 0.016f, 0.0015f);
+    drawUiRect(resetPad, 0.22f, 0.24f, 0.28f);'''
+pad_new = '''            Matrix4f::Scaling(0.070f, 0.016f, 0.0015f);
+    drawUiRect(resetPad, 0.22f, 0.24f, 0.28f);
+        const Matrix4f bonesPad = panelPose *
+            Matrix4f::Translation(0.108f, kResetY, -0.0028f) *
+            Matrix4f::Scaling(0.036f, 0.014f, 0.0015f);
+        drawUiRect(
+            bonesPad,
+            skeletonVisible ? 0.24f : 0.14f,
+            skeletonVisible ? 0.30f : 0.15f,
+            skeletonVisible ? 0.34f : 0.16f);'''
+if pad_old not in text:
+    raise SystemExit('v1.3.2 BONES pad anchor missing')
+text = text.replace(pad_old, pad_new, 1)
+
+release_old = '''            resetTouchPrev = false;
+            materialTouchPrev = false;
+            modelMoveTouchPrev = false;'''
+release_new = '''            resetTouchPrev = false;
+            materialTouchPrev = false;
+            modelMoveTouchPrev = false;
+            skeletonTouchPrev = false;'''
+if text.count(release_old) < 1:
+    raise SystemExit('v1.3.2 touch release anchor missing')
+text = text.replace(release_old, release_new)
+
+cpp.write_text(text)
+print('v1.3.2 parent-bone swing: ON')
+print('v1.3.2 BONES visibility toggle: ON')
+print('v1.3.2 quieter skeleton: ON')
