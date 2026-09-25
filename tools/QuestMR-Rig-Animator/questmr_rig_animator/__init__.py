@@ -503,8 +503,11 @@ def update_ik_influence(self, context):
 def calibrate_pole_angle(context, armature, ik_constraint, desired_head, desired_tail):
     owner = None
     for pose_bone in armature.pose.bones:
-        if ik_constraint in pose_bone.constraints[:]:
-            owner = pose_bone
+        for candidate in pose_bone.constraints:
+            if candidate == ik_constraint:
+                owner = pose_bone
+                break
+        if owner is not None:
             break
     if owner is None or ik_constraint.type != "IK" or ik_constraint.pole_target is None:
         return
@@ -840,6 +843,43 @@ class QMRA_OT_create_ik(Operator):
             self.report({"WARNING"}, f"Handles created safely; missing roles: {unique}")
         else:
             self.report({"INFO"}, f"Created {created} controls without changing the pose")
+        return {"FINISHED"}
+
+
+class QMRA_OT_select_ik_handle(Operator):
+    bl_idname = "qmra.select_ik_handle"
+    bl_label = "Select IK Handle"
+    bl_description = "Select a named QuestMR IK control in the viewport"
+
+    role: StringProperty(default="")
+
+    def execute(self, context):
+        handle = None
+        for obj in ik_handles():
+            if obj.get(IK_ROLE_PROP) == self.role:
+                handle = obj
+                break
+        if handle is None:
+            self.report({"ERROR"}, f"IK handle not found: {self.role}")
+            return {"CANCELLED"}
+
+        if context.object and context.object.mode != "OBJECT":
+            try:
+                bpy.ops.object.mode_set(mode="OBJECT")
+            except Exception:
+                pass
+        bpy.ops.object.select_all(action="DESELECT")
+        handle.select_set(True)
+        context.view_layer.objects.active = handle
+
+        rotate_roles = {"head", "chest"}
+        try:
+            if context.area and context.area.type == "VIEW_3D":
+                tool = "builtin.rotate" if self.role in rotate_roles else "builtin.move"
+                bpy.ops.wm.tool_set_by_id(name=tool)
+        except Exception:
+            pass
+
         return {"FINISHED"}
 
 
@@ -1373,6 +1413,32 @@ class QMRA_PT_main(Panel):
             ik.label(text=f"{state}: {len(ik_handles())} controls")
             ik.label(text="Cubes = hands/feet • spheres = elbow/knee poles")
             ik.label(text="Circle = pelvis • arrows = chest/head")
+            ik.label(text="Quick Select")
+            row = ik.row(align=True)
+            op = row.operator("qmra.select_ik_handle", text="L Hand")
+            op.role = "hand_l"
+            op = row.operator("qmra.select_ik_handle", text="R Hand")
+            op.role = "hand_r"
+            row = ik.row(align=True)
+            op = row.operator("qmra.select_ik_handle", text="L Foot")
+            op.role = "foot_l"
+            op = row.operator("qmra.select_ik_handle", text="R Foot")
+            op.role = "foot_r"
+            row = ik.row(align=True)
+            op = row.operator("qmra.select_ik_handle", text="Pelvis")
+            op.role = "pelvis"
+            op = row.operator("qmra.select_ik_handle", text="Head")
+            op.role = "head"
+            row = ik.row(align=True)
+            op = row.operator("qmra.select_ik_handle", text="L Elbow")
+            op.role = "elbow_l"
+            op = row.operator("qmra.select_ik_handle", text="R Elbow")
+            op.role = "elbow_r"
+            row = ik.row(align=True)
+            op = row.operator("qmra.select_ik_handle", text="L Knee")
+            op.role = "knee_l"
+            op = row.operator("qmra.select_ik_handle", text="R Knee")
+            op.role = "knee_r"
         else:
             ik.label(text="Create handles after importing a Mixamo humanoid.")
 
@@ -1432,6 +1498,7 @@ classes = (
     QMRA_OT_import_glb,
     QMRA_OT_prepare_rig,
     QMRA_OT_create_ik,
+    QMRA_OT_select_ik_handle,
     QMRA_OT_activate_ik,
     QMRA_OT_remove_ik,
     QMRA_OT_snap_ik,
