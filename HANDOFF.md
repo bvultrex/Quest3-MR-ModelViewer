@@ -1,70 +1,57 @@
 # HANDOFF — Quest3 MR Model Viewer
 
-## Safe checkpoint
+## Current checkpoint
 
-The project is **complete at v1.0.1 accepted final**.
+Repository re-audit on 2026-09-25 found the real code baseline at **v1.4.1**, not the stale v1.0.1 documentation. v1.4.1 is the last green CI checkpoint before the current **v1.5.0 candidate**.
 
-The accepted release has passed the final Quest 3 hardware acceptance test. v1.0.0 was rejected because of raw metre-scale assumptions and GL lifecycle regressions. v1.0.1 replaces raw real-scale with explicit physical SIZE presets and hardens UI/model GL resource lifecycle handling.
+## v1.4.1 capabilities
 
-## What works
+- Quest standalone native Android/OpenXR
+- passthrough and filtered Environment Depth
+- safe GLB picker/import flow
+- PBR + multi-material rendering
+- dual-controller UI/tablet/model grabbing
+- physical SIZE controls
+- skinning and live joint palette
+- BONES visualization/manipulation
+- two-bone IK
+- first GLB animation playback
+- preservation of character root scale during animation
 
-- Quest 3 standalone Android/OpenXR launch
-- passthrough + `XR_META_environment_depth`
-- filtered real-world occlusion
-- GLB picker via Android Storage Access Framework
-- safe cold start with no persisted-model auto-load
-- GLB preflight/resource guards
-- BaseColor / Normal / Metallic-Roughness PBR path
-- lighting controls
-- dual-controller trigger UI
-- direct no-snap tablet grip with full 6DoF
-- direct no-snap model grip with full 6DoF
-- fitted scale + yaw controls
-- SIZE presets: FIT / 32MM / 75MM / 150MM / 300MM
-- import state text: IDLE / WAIT / READY / ERROR
-- restart-safe UI labels
-- restart-safe GL resource lifecycle
+## v1.5.0 work
 
-## v1.0.1 final fixes
+### Restart regression
 
-- Removed the raw `1 glTF unit = 1 metre` interaction because imported assets do not reliably encode intended display/print units.
-- SIZE sets the largest model dimension to an explicit physical millimetre target.
-- Manual SCALE exits a physical preset back to FIT.
-- `Scene::Create` invalidates static UI GL handles and clears imported-model GL handles rather than trusting names from a prior EGL context.
-- `Scene::Destroy` explicitly releases UI text meshes and imported-model GL resources.
+Symptom: after app restart the tablet could become ungrabbable.
 
-Final hardware testing confirmed the previous disappearing-label and white-artifact regressions are no longer observed with the accepted test set.
+Cause class: render-local static CPU interaction state survived Scene/EGL recreation even though GL resource state was reset.
 
-## Build pipeline
+Fix: scene-generation epoch. Scene::Create increments the generation; RenderFrame clears grab ownership, input-edge latches, selection and placement state on mismatch. Currently held controls are baselined for one frame to prevent phantom grabs.
 
-`.github/workflows/build-quest-apk.yml` builds against Meta OpenXR SDK v85 + cgltf v1.15 + pinned stb, applies modular patches, builds ARM64, verifies APK metadata/signature/checksum and uploads artifacts.
+### Multi-model scene
 
-## Rules that must survive future work
+IMPORT GLB now archives the active model instead of deleting it, then loads the selected GLB as the new active model.
 
-- Keep feature code in modular patch files, not workflow YAML.
-- Preserve the v0.1.2 filtered Environment Depth pass unless deliberately retuning it.
-- Cached GLB must never auto-load on cold start.
-- Never preserve OpenGL object names across scene/EGL recreation.
-- Keep the 2M triangle ceiling unless a renderer-side performance strategy is added.
+- max 6 models
+- aggregate estimated scene GPU cap 768 MiB
+- older models remain rendered and grabbable
+- grabbing a model selects it for SIZE/SCALE/ROTATE/RESET
+- newest model remains the live animation/IK target
+- older rigged models freeze their current joint palette when archived
 
 ## Safety envelope
 
-GLB 192 MiB, vertices 3M, indices 12M, triangles 2M, texture edge 4096, mipmapped textures 160 MiB estimate, total GPU 256 MiB estimate, CPU import 384 MiB estimate.
+Per model: GLB 192 MiB, vertices 3M, indices 12M, triangles 2M, texture edge 4096, mipmapped textures 500 MiB estimate, per-model GPU estimate 640 MiB, CPU import estimate 384 MiB. Scene aggregate: 768 MiB / 6 models.
 
-## Final hardware acceptance
+## Rules to preserve
 
-Passed on Quest 3:
+- keep the v0.1.2 filtered Environment Depth baseline unless intentionally retuned
+- cached GLB must never auto-load on cold start
+- never preserve raw GL names across scene/EGL recreation
+- never preserve CPU grab/press ownership across scene recreation
+- do not raise the 2M triangle ceiling without a renderer performance strategy
+- keep feature code in modular patch fragments, not workflow YAML
 
-1. cold start with labels visible,
-2. close/reopen keeps labels visible,
-3. known-good small GLB reaches READY with no white artifact,
-4. SIZE cycles through FIT / 32MM / 75MM / 150MM / 300MM at plausible physical sizes,
-5. moving SCALE returns SIZE to FIT,
-6. tablet and model gripping remain stable,
-7. restart remains safe and does not auto-load cached GLB.
+## v1.5 acceptance
 
-## Continuation policy
-
-**v1.0.1 is frozen as the accepted v1.0 baseline.**
-
-Future work should begin as v1.1+ from this checkpoint. Candidate future areas include Spatial Anchors, surface placement, richer multi-material glTF support, LOD/simplification for heavier meshes, and optional two-hand model manipulation. None are required for the accepted v1.0 scope.
+Do not call v1.5 hardware accepted until Quest testing confirms restart grabbing and multi-model behavior.
