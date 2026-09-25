@@ -56,3 +56,42 @@ Implemented:
 - Reset/Delete Keys respect Quest Pose channel policy
 
 Free Pose preserves Blender's unrestricted transform behavior for exceptional cases.
+
+
+## 2026-09-25 — v0.2.0 IK control layer
+
+Implemented the first non-destructive Mixamo-oriented IK authoring layer.
+
+Architecture:
+- original Mixamo bones remain deformation/export bones
+- QuestMR creates external Empty controls in a dedicated `QuestMR_IK` collection
+- generated constraints are prefixed `QMRA_IK_`
+- helper objects carry semantic roles for future image/video pose reconstruction
+
+Controls:
+- left/right hand target + elbow pole
+- left/right foot target + knee pole
+- pelvis position/rotation control
+- optional chest rotation control
+- optional head rotation control
+
+IK chains:
+- IK constraint lives on forearm / lower leg
+- chain_count = 2
+- stretching disabled
+- hand/foot end bones receive target world rotation
+- pole positions are initialized from the current limb plane
+
+Animation:
+- Key IK Pose keys target object transforms
+- Key Pose automatically keys IK controls while Key IK with Key Pose is enabled
+- IK Influence blends helper constraints with underlying bone animation
+- Snap Handles to Pose temporarily disables QuestMR constraints, reads the unconstrained pose, moves the controls, then restores influence
+
+Export:
+- QuestMR IK controls are excluded using glTF Selected Objects export
+- constraint-driven motion uses glTF sampling / Bake All Objects Animations
+- IK exports use SCENE animation mode so the evaluated pose is exported as seen
+- the GLB contains model, skin and baked pose animation, not the helper control objects
+
+Future Pose-from-Reference code should target semantic IK roles rather than deform-bone transforms.

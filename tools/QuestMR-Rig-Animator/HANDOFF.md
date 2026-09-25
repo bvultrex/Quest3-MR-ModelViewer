@@ -44,7 +44,7 @@ Blender is used as the GLB/skinning/animation backend. The QuestMR extension sup
 Do not merge authoring into Quest3 MR Model Viewer unless there is a specific runtime need. Keep the viewer lean and use shared GLB animation conventions as the bridge between projects.
 
 
-## v0.1.2 pose policy
+## v0.2.0 pose policy
 
 Default authoring mode is **Quest Pose**:
 - non-root bones: rotation only
@@ -53,3 +53,24 @@ Default authoring mode is **Quest Pose**:
 - Individual Origins + Local orientation
 
 **Free Pose** restores unrestricted location/rotation/scale for advanced corrections.
+
+
+## v0.2.0 IK architecture
+
+Semantic helper roles:
+- hand_l / elbow_l
+- hand_r / elbow_r
+- foot_l / knee_l
+- foot_r / knee_r
+- pelvis
+- chest
+- head
+
+Helper objects use `qmra_ik_handle=true` and `qmra_ik_role=<role>`.
+Constraints use the `QMRA_IK_` prefix.
+
+Mixamo bone aliases are normalized so names such as `mixamorig:LeftForeArm` resolve without hard-coding the prefix.
+
+Export must continue to exclude IK helper empties and bake/sample their evaluated effect onto the armature.
+
+This semantic target layer is the planned integration point for MediaPipe/reference-image pose matching.

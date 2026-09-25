@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "questmr_rig_animator"
-version = "0.1.2"
+version = "0.2.0"
 name = "QuestMR Rig Animator"
 tagline = "Pose, keyframe and export animations for rigged GLB models"
 maintainer = "QuestMR Project"

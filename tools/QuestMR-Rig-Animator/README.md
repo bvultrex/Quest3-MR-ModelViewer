@@ -60,7 +60,7 @@ For v0.1 the 3D editor is Blender itself. That keeps GLB round-tripping, skinnin
 - later Quest authoring UI using controller grabs
 
 
-### v0.1.2 Quest Pose
+### v0.2.0 Quest Pose
 
 Quest Pose is now the default authoring mode and mirrors the interaction philosophy of the MR viewer.
 
@@ -76,3 +76,34 @@ Quest Pose is now the default authoring mode and mirrors the interaction philoso
 - Free Pose remains available for unrestricted Blender G / R / S editing
 
 This prevents accidental joint translation from stretching the skinned mesh while posing.
+
+
+## v0.2.0 IK Handles
+
+QuestMR now creates a non-destructive IK control layer on top of a Mixamo-compatible deform rig.
+
+### Controls
+
+- **Hand L / Hand R**: cube targets. Move with G to place the wrist; rotate with R to orient the hand.
+- **Elbow L / Elbow R**: sphere pole targets controlling elbow bend direction.
+- **Foot L / Foot R**: cube targets. Move with G to place the ankle; rotate with R to orient the foot.
+- **Knee L / Knee R**: sphere pole targets controlling knee bend direction.
+- **Pelvis**: circle target controlling hips position + orientation.
+- **Chest**: arrows target controlling upper torso orientation when a matching bone is present.
+- **Head**: arrows target controlling head orientation.
+
+### Workflow
+
+1. Import the rigged GLB.
+2. Click **Create / Rebuild IK Handles**.
+3. Create a new animation clip.
+4. Move hand/foot/pelvis controls and elbow/knee pole controls.
+5. Rotate hand/foot/chest/head targets when needed.
+6. Change frame.
+7. Press **Key Pose**. With **Key IK with Key Pose** enabled, all IK controls are keyed.
+8. Repeat.
+9. Export Animated GLB.
+
+IK constraints use two-bone chains with stretching disabled. The exported GLB does not contain the QuestMR helper empties; the glTF exporter samples the constraint-driven armature into the exported animation.
+
+This control layout is also the API target for the planned Pose-from-Reference system: image/video pose detection will set these same control transforms rather than manipulating deform bones directly.
