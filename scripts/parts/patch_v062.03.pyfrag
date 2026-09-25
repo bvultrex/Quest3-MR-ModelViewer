@@ -1,0 +1,56 @@
+                GL(glUniformBlockBinding(static_cast<GLuint>(skinProgram), jointBlock, 3));
+            }
+        }
+        GL(glBindBuffer(GL_UNIFORM_BUFFER, 0));
+
+        GL(glBindVertexArray(object.mesh.vao));
+        GL(glUniformMatrix4fv(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::MODEL_MATRIX),
+            1, GL_TRUE, &model.M[0][0]));
+        const QuestMrImportedMaterial fallback{};
+        for (const QuestMrImportedDraw& draw : object.mesh.draws) {
+            const QuestMrImportedMaterial& material =
+                (draw.materialSlot >= 0 &&
+                 static_cast<size_t>(draw.materialSlot) < object.mesh.materials.size())
+                    ? object.mesh.materials[static_cast<size_t>(draw.materialSlot)] : fallback;
+            GL(glUniform1f(scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::METALLIC_FACTOR),
+                fullPbrMode ? material.metallicFactor : 0.0f));
+            GL(glUniform1f(scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::ROUGHNESS_FACTOR),
+                fullPbrMode ? material.roughnessFactor : 0.82f));
+            GL(glUniform1f(scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::NORMAL_SCALE),
+                fullPbrMode ? material.normalScale : 0.0f));
+            GL(glUniform1f(scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::HAS_BASE_COLOR_TEXTURE),
+                material.hasBaseColorTexture ? 1.0f : 0.0f));
+            GL(glUniform1f(scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::HAS_NORMAL_TEXTURE),
+                (fullPbrMode && material.hasNormalTexture) ? 1.0f : 0.0f));
+            GL(glUniform1f(scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::HAS_METALLIC_ROUGHNESS_TEXTURE),
+                (fullPbrMode && material.hasMetallicRoughnessTexture) ? 1.0f : 0.0f));
+            GL(glActiveTexture(GL_TEXTURE1)); GL(glBindTexture(GL_TEXTURE_2D, material.baseColorTexture));
+            GL(glActiveTexture(GL_TEXTURE2)); GL(glBindTexture(GL_TEXTURE_2D, material.normalTexture));
+            GL(glActiveTexture(GL_TEXTURE3)); GL(glBindTexture(GL_TEXTURE_2D, material.metallicRoughnessTexture));
+            GL(glActiveTexture(GL_TEXTURE0));
+            GL(glDrawElements(GL_TRIANGLES, draw.indexCount, GL_UNSIGNED_INT,
+                reinterpret_cast<const void*>(draw.indexOffsetBytes)));
+        }
+        GL(glActiveTexture(GL_TEXTURE1)); GL(glBindTexture(GL_TEXTURE_2D, 0));
+        GL(glActiveTexture(GL_TEXTURE2)); GL(glBindTexture(GL_TEXTURE_2D, 0));
+        GL(glActiveTexture(GL_TEXTURE3)); GL(glBindTexture(GL_TEXTURE_2D, 0));
+        GL(glActiveTexture(GL_TEXTURE0));
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::PBR_MODE), 0.0f));
+    };
+
+    for (QuestMrSceneObject& object : gQuestMrSceneObjects) {
+        drawSceneObject(object);
+    }
+
+    // Render the newest imported model as the live animation/rig target.
+    if (gQuestMrImportedMesh.loaded && importedModelPlaced) {
+'''
+assert anchor in text
+text=text.replace(anchor,insert,1)
+
+cpp.write_text(text)
+print('v1.5.0 scene generation reset: ON')
+print('v1.5.0 multi-model scene: ON (6 models / 768 MiB aggregate GPU estimate)')
+print('v1.5.0 archived rig pose snapshots: ON')
