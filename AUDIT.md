@@ -67,3 +67,26 @@ Per-model guards remain: 192 MiB file, 3M vertices, 12M indices, 2M triangles, 4
 The known ~3.03M-triangle reference remains outside the 2M safety ceiling because it reproducibly caused severe sustained XR/system lag.
 
 **v1.5.0 is a candidate until CI and Quest hardware acceptance pass.**
+
+
+## 2026-09-25 — v1.5.1 selected-model removal
+
+Added a dedicated REMOVE MODEL row. Deletion is queued and processed at the beginning of the next frame so vector elements and selected-object references are never invalidated in the middle of the UI pass.
+
+Latest green v1.5 checkpoint: **v1.5.1**, commit `db70c49dd7b1c392432dfd85fd3100e2ab8e080a`.
+
+## 2026-09-25 — v1.6.0 UI candidate
+
+Requested UI/import changes:
+
+- PLAY renamed to PLAY/PAUSE while preserving toggle behavior.
+- Added live animation progress track.
+- Trigger-hold dragging on the track scrubs clip time, pauses playback and resamples the live rig immediately.
+- Added compact six-row SCENE MODELS selector matching the existing scene limit.
+- Loaded/selected/live rows receive distinct visual state.
+- Row click selects a model for existing transform and REMOVE MODEL controls.
+- Expanded tablet and controller-ray hit range vertically for the new controls.
+- Android Storage Access Framework request tightened from `*/*` plus fallbacks to `model/gltf-binary` only.
+- Returned document receives a second .glb / MIME validation before bytes are copied into the app-private import transaction.
+
+v1.6.0 remains a candidate until CI and Quest hardware acceptance pass.
