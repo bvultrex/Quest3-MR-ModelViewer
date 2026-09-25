@@ -1,29 +1,38 @@
-Quest3 MR Model Viewer v1.5.1 candidate
+Quest3 MR Model Viewer v1.6.0 candidate
 
 UI
 - Either controller points at the tablet.
-- Trigger clicks buttons; hold Trigger and drag sliders.
+- Trigger clicks buttons; hold Trigger and drag sliders/timeline.
 - Grip/Squeeze near the tablet grabs it with no snap.
 
 IMPORT / SCENE
+- IMPORT GLB opens a GLB-only document request.
+- The selected document is validated as .glb / model/gltf-binary before import.
 - IMPORT GLB loads another model without intentionally replacing older scene models.
-- Up to 6 models are allowed in the current v1.5 scene.
+- Up to 6 models are allowed.
 - Combined estimated scene GPU budget: 768 MiB.
 - A cold start never auto-loads an old persisted GLB.
 
-MODELS
-- Grip/Squeeze near a model to grab it. The grabbed model becomes selected.
+SCENE MODELS
+- The tablet shows MODEL 1 through MODEL 6.
+- Loaded rows are lit; the selected row is highlighted.
+- The newest/live model has an additional marker.
+- Trigger-click a loaded row to select it.
+- Grip/Squeeze near a model also selects it.
 - SIZE / SCALE / ROTATE / RESET act on the selected model.
 - REMOVE MODEL deletes only the selected model and frees its GPU resources.
-- Other loaded scene models remain in place after REMOVE MODEL.
+- Other loaded scene models remain in place.
 - SIZE presets: FIT / 32MM / 75MM / 150MM / 300MM.
-- The newest imported model is the live rig / animation target.
-- Older rigged models keep a frozen pose snapshot after another model is imported.
 
 RIG / ANIMATION
-- BONES toggles the rig overlay for the current live rig.
+- The newest imported model is the live rig / animation target.
+- Older rigged models keep a frozen pose snapshot after another model is imported.
+- BONES toggles the live rig overlay.
 - Joint handles support direct posing; supported hand/foot endpoints use two-bone IK.
-- PLAY toggles the first supported GLB animation clip on the newest model.
+- PLAY/PAUSE toggles the first supported GLB animation clip.
+- The ANIM track shows current progress.
+- Hold Trigger on ANIM and drag left/right to scrub.
+- Scrubbing pauses playback and updates the pose immediately.
 
 IMPORT GUARDS
 - 192 MiB GLB
