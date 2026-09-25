@@ -58,3 +58,21 @@ For v0.1 the 3D editor is Blender itself. That keeps GLB round-tripping, skinnin
 - simplified custom workspace
 - packaged Windows launcher
 - later Quest authoring UI using controller grabs
+
+
+### v0.1.2 Quest Pose
+
+Quest Pose is now the default authoring mode and mirrors the interaction philosophy of the MR viewer.
+
+- child-bone Location is locked
+- child-bone Scale is locked
+- Rotation remains editable
+- each selected bone rotates around its own origin
+- transform orientation is Local
+- Blender's rotate tool is selected automatically where possible
+- the root bone may optionally retain Translation for root motion
+- Key Pose writes Rotation only for child bones in Quest Pose
+- root Location is keyed only when Allow Root Translation is enabled
+- Free Pose remains available for unrestricted Blender G / R / S editing
+
+This prevents accidental joint translation from stretching the skinned mesh while posing.

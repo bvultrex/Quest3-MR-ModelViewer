@@ -42,3 +42,14 @@ Blender is used as the GLB/skinning/animation backend. The QuestMR extension sup
 ## Important design choice
 
 Do not merge authoring into Quest3 MR Model Viewer unless there is a specific runtime need. Keep the viewer lean and use shared GLB animation conventions as the bridge between projects.
+
+
+## v0.1.2 pose policy
+
+Default authoring mode is **Quest Pose**:
+- non-root bones: rotation only
+- root: rotation + optional translation
+- no child-bone scale/location keyframes
+- Individual Origins + Local orientation
+
+**Free Pose** restores unrestricted location/rotation/scale for advanced corrections.

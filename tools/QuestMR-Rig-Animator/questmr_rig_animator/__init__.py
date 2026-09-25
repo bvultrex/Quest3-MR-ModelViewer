@@ -1,7 +1,7 @@
 bl_info = {
     "name": "QuestMR Rig Animator",
     "author": "QuestMR Project",
-    "version": (0, 1, 1),
+    "version": (0, 1, 2),
     "blender": (4, 4, 0),
     "location": "View3D > Sidebar > QuestMR",
     "description": "Focused GLB skeleton posing, keyframing and animation export",
@@ -12,7 +12,7 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
 from bpy.types import Operator, Panel
 
-ADDON_VERSION = "0.1.1"
+ADDON_VERSION = "0.1.2"
 ACTION_PREFIX = "QMRA_"
 _pose_clipboard = {}
 
@@ -60,6 +60,50 @@ def normalize_armature_display(armature):
             pass
 
 
+def apply_pose_style(context, armature):
+    if armature is None:
+        return
+    quest_pose = context.scene.qmra_pose_style == "QUEST"
+    allow_root_motion = context.scene.qmra_allow_root_motion
+
+    for pose_bone in armature.pose.bones:
+        is_root = pose_bone.parent is None
+        if quest_pose:
+            can_translate = is_root and allow_root_motion
+            pose_bone.lock_location = (
+                not can_translate,
+                not can_translate,
+                not can_translate,
+            )
+            pose_bone.lock_scale = (True, True, True)
+            pose_bone.lock_rotation = (False, False, False)
+        else:
+            pose_bone.lock_location = (False, False, False)
+            pose_bone.lock_scale = (False, False, False)
+            pose_bone.lock_rotation = (False, False, False)
+
+    if quest_pose:
+        try:
+            context.scene.tool_settings.transform_pivot_point = "INDIVIDUAL_ORIGINS"
+        except Exception:
+            pass
+        try:
+            context.scene.transform_orientation_slots[0].type = "LOCAL"
+        except Exception:
+            pass
+        try:
+            if context.area and context.area.type == "VIEW_3D":
+                bpy.ops.wm.tool_set_by_id(name="builtin.rotate")
+        except Exception:
+            pass
+
+
+def update_pose_style(self, context):
+    armature = active_armature(context)
+    if armature is not None:
+        apply_pose_style(context, armature)
+
+
 def ensure_pose_mode(context):
     armature = active_armature(context)
     if armature is None:
@@ -70,6 +114,7 @@ def ensure_pose_mode(context):
         bpy.ops.object.mode_set(mode="POSE")
     except RuntimeError:
         return None
+    apply_pose_style(context, armature)
     return armature
 
 
@@ -93,15 +138,26 @@ def action_fcurves(armature):
     return list(getattr(action, "fcurves", []))
 
 
-def key_pose_bone(bone, frame):
-    bone.keyframe_insert(data_path="location", frame=frame, group=bone.name)
+def rotation_data_path(bone):
     if bone.rotation_mode == "QUATERNION":
-        bone.keyframe_insert(data_path="rotation_quaternion", frame=frame, group=bone.name)
-    elif bone.rotation_mode == "AXIS_ANGLE":
-        bone.keyframe_insert(data_path="rotation_axis_angle", frame=frame, group=bone.name)
-    else:
-        bone.keyframe_insert(data_path="rotation_euler", frame=frame, group=bone.name)
-    bone.keyframe_insert(data_path="scale", frame=frame, group=bone.name)
+        return "rotation_quaternion"
+    if bone.rotation_mode == "AXIS_ANGLE":
+        return "rotation_axis_angle"
+    return "rotation_euler"
+
+
+def key_paths_for_bone(context, bone):
+    if context.scene.qmra_pose_style == "QUEST":
+        paths = [rotation_data_path(bone)]
+        if bone.parent is None and context.scene.qmra_allow_root_motion:
+            paths.insert(0, "location")
+        return paths
+    return ["location", rotation_data_path(bone), "scale"]
+
+
+def key_pose_bone(context, bone, frame):
+    for data_path in key_paths_for_bone(context, bone):
+        bone.keyframe_insert(data_path=data_path, frame=frame, group=bone.name)
 
 
 def apply_interpolation_at_frame(armature, frame, interpolation):
@@ -167,6 +223,7 @@ class QMRA_OT_import_glb(Operator):
         context.scene.frame_start = context.scene.qmra_frame_start
         context.scene.frame_end = context.scene.qmra_frame_end
         bpy.ops.object.mode_set(mode="POSE")
+        apply_pose_style(context, armature)
         self.report({"INFO"}, f"Ready: {armature.name} ({len(armature.data.bones)} bones)")
         return {"FINISHED"}
 
@@ -256,7 +313,7 @@ class QMRA_OT_key_pose(Operator):
         prefs.keyframe_new_interpolation_type = interpolation
         try:
             for bone in bones:
-                key_pose_bone(bone, frame)
+                key_pose_bone(context, bone, frame)
             apply_interpolation_at_frame(armature, frame, interpolation)
         finally:
             prefs.keyframe_new_interpolation_type = old_interpolation
@@ -287,7 +344,8 @@ class QMRA_OT_delete_pose_keys(Operator):
 
         frame = context.scene.frame_current
         for bone in bones:
-            for path in ("location", "rotation_quaternion", "rotation_axis_angle", "rotation_euler", "scale"):
+            paths = key_paths_for_bone(context, bone)
+            for path in paths:
                 try:
                     bone.keyframe_delete(data_path=path, frame=frame, group=bone.name)
                 except Exception:
@@ -358,8 +416,11 @@ class QMRA_OT_reset_pose(Operator):
             return {"CANCELLED"}
 
         for bone in bones:
-            bone.location = (0.0, 0.0, 0.0)
-            bone.scale = (1.0, 1.0, 1.0)
+            quest_pose = context.scene.qmra_pose_style == "QUEST"
+            if not quest_pose or (bone.parent is None and context.scene.qmra_allow_root_motion):
+                bone.location = (0.0, 0.0, 0.0)
+            if not quest_pose:
+                bone.scale = (1.0, 1.0, 1.0)
             if bone.rotation_mode == "QUATERNION":
                 bone.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
             elif bone.rotation_mode == "AXIS_ANGLE":
@@ -494,6 +555,15 @@ class QMRA_PT_main(Panel):
         row = io.row(align=True)
         row.operator("qmra.prepare_rig", icon="POSE_HLT")
         row.prop(scene, "qmra_show_bone_names", text="Bone Names")
+        io.separator()
+        io.label(text="Pose Controls", icon="ORIENTATION_LOCAL")
+        io.prop(scene, "qmra_pose_style", expand=True)
+        if scene.qmra_pose_style == "QUEST":
+            io.prop(scene, "qmra_allow_root_motion", text="Allow Root Translation")
+            io.label(text="Bones rotate around their own joints.")
+            io.label(text="Translation + scale are locked on child bones.")
+        else:
+            io.label(text="Free Pose allows G / R / S on all bones.")
 
         clip = layout.box()
         clip.label(text="2 • Animation Clip", icon="ACTION")
@@ -525,7 +595,10 @@ class QMRA_PT_main(Panel):
         row.operator("qmra.copy_pose", icon="COPYDOWN")
         row.operator("qmra.paste_pose", icon="PASTEDOWN")
         timeline.operator("qmra.reset_pose", icon="LOOP_BACK")
-        timeline.label(text="Viewport: select bones, then G / R / S to pose.")
+        if scene.qmra_pose_style == "QUEST":
+            timeline.label(text="Viewport: select a bone and rotate it (R / rotate gizmo).")
+        else:
+            timeline.label(text="Viewport: select bones, then G / R / S to pose.")
 
         out = layout.box()
         out.label(text="4 • Export", icon="EXPORT")
@@ -572,6 +645,30 @@ def register():
         description="Delete the current scene objects before importing the GLB",
         default=True,
     )
+    bpy.types.Scene.qmra_pose_style = EnumProperty(
+        name="Pose Style",
+        description="Choose Quest-like rotation-only posing or unrestricted Blender transforms",
+        items=(
+            (
+                "QUEST",
+                "Quest Pose",
+                "Rotate child bones around their own joint pivots; lock translation and scale",
+            ),
+            (
+                "FREE",
+                "Free Pose",
+                "Allow normal Blender location, rotation and scale transforms",
+            ),
+        ),
+        default="QUEST",
+        update=update_pose_style,
+    )
+    bpy.types.Scene.qmra_allow_root_motion = BoolProperty(
+        name="Allow Root Translation",
+        description="Let the skeleton root move while child bones stay rotation-only",
+        default=True,
+        update=update_pose_style,
+    )
     bpy.types.Scene.qmra_show_bone_names = BoolProperty(
         name="Names",
         description="Display bone names in the 3D viewport",
@@ -606,6 +703,8 @@ def unregister():
         "qmra_frame_end",
         "qmra_fps",
         "qmra_clear_scene_on_import",
+        "qmra_pose_style",
+        "qmra_allow_root_motion",
         "qmra_show_bone_names",
         "qmra_key_scope",
         "qmra_interpolation",
