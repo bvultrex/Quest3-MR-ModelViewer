@@ -21,3 +21,17 @@ Implemented:
 Preservation rule:
 - Quest3 MR Model Viewer remains a playback/runtime project.
 - Rig Animator changes must not change viewer GLB import safety or XR rendering behavior.
+
+
+## 2026-09-25 — v0.1.1 Mixamo GLB import display fix
+
+Observed: a Mixamo-skeleton GLB appeared in Blender as several deformed sphere/blob shapes.
+
+Correction:
+- keep the Mixamo skeleton as the runtime/export skeleton
+- import glTF with `disable_bone_shape=True`
+- import with `guess_original_bind_pose=False` as the safer default
+- defensively clear all imported `PoseBone.custom_shape`
+- force the armature viewport display to `STICK`
+
+Rationale: Blender's default glTF armature presentation can create custom bone shapes for display. Those shapes are not the skinned character mesh and should not be used as the QuestMR authoring presentation.
