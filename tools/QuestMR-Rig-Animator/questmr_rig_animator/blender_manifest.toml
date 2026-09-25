@@ -1,0 +1,10 @@
+schema_version = "1.0.0"
+id = "questmr_rig_animator"
+version = "0.1.0"
+name = "QuestMR Rig Animator"
+tagline = "Pose, keyframe and export animations for rigged GLB models"
+maintainer = "QuestMR Project"
+type = "add-on"
+tags = ["Animation", "Import-Export", "3D View"]
+blender_version_min = "4.4.0"
+license = ["SPDX:GPL-3.0-or-later"]

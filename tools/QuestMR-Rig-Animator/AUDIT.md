@@ -1,0 +1,23 @@
+# AUDIT
+
+## 2026-09-25 — v0.1.0 bootstrap
+
+Created QuestMR Rig Animator as a sibling authoring tool inside the Quest3-MR-ModelViewer repository.
+
+Decision: do not add authoring complexity to the Quest runtime. Use Blender as the Windows animation backend first, with QuestMR providing a focused sidebar workflow.
+
+Implemented:
+- GLB import with BLENDER glTF bone heuristic
+- rig detection and Pose Mode setup
+- new animation Action creation
+- key pose insertion for location / rotation / scale
+- Selected vs Whole Rig scope
+- Step / Linear / Smooth interpolation
+- copy / paste / reset pose
+- timeline setup, stepping and playback
+- animated GLB export
+- Blender 4.4+ layered Action F-Curve compatibility path
+
+Preservation rule:
+- Quest3 MR Model Viewer remains a playback/runtime project.
+- Rig Animator changes must not change viewer GLB import safety or XR rendering behavior.

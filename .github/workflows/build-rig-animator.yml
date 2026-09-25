@@ -1,0 +1,61 @@
+name: Build Rig Animator
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tools/QuestMR-Rig-Animator/**'
+      - '.github/workflows/build-rig-animator.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rig-animator-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_VERSION: '0.1.0'
+
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Validate Python syntax
+        shell: pwsh
+        run: |
+          python -m py_compile tools/QuestMR-Rig-Animator/questmr_rig_animator/__init__.py
+
+      - name: Validate Blender extension manifest
+        shell: pwsh
+        run: |
+          python -c "import tomllib, pathlib; p=pathlib.Path('tools/QuestMR-Rig-Animator/questmr_rig_animator/blender_manifest.toml'); d=tomllib.loads(p.read_text()); assert d['id']=='questmr_rig_animator'; assert d['version']=='0.1.0'; print(d)"
+
+      - name: Package Blender extension
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path tools/QuestMR-Rig-Animator/questmr_rig_animator/* -DestinationPath dist/QuestMR-Rig-Animator-v${{ env.APP_VERSION }}.zip -Force
+          Copy-Item tools/QuestMR-Rig-Animator/README.md dist/README.txt
+
+      - name: Verify package
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/QuestMR-Rig-Animator-v${{ env.APP_VERSION }}.zip")) { throw "Extension ZIP missing" }
+          Get-ChildItem dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: QuestMR-Rig-Animator-v${{ env.APP_VERSION }}
+          path: dist/
+          if-no-files-found: error
