@@ -2,97 +2,60 @@
 
 Standalone mixed-reality GLB viewer for Meta Quest 3 / Quest 3S.
 
-## v1.0.1 — accepted final release
+## v1.5.0 candidate
 
-The viewer runs natively on Quest using Android + C++ OpenXR and Meta Environment Depth. It is built from Meta OpenXR SDK v85 `XrPassthroughOcclusion` through a reproducible GitHub Actions pipeline.
+Current code is based on the hardware-confirmed viewer line through v1.4.1 and adds restart-safe interaction state plus a multi-model scene.
 
-### Core features
+### Current features
 
-- color passthrough mixed reality
-- `XR_META_environment_depth` real-world occlusion with filtered depth edges
-- standalone ARM64 Quest APK
-- Android Storage Access Framework GLB picker
-- safe cold start: previously imported GLBs are never auto-loaded
-- transactional GLB validation and memory/geometry guards
-- BaseColor, Normal and Metallic/Roughness PBR textures
-- lighting controls for ambient, key light, azimuth, elevation, warmth and exposure
+- color passthrough + `XR_META_environment_depth` real-world occlusion
+- filtered v0.1.2 Environment Depth edge treatment
+- Android Storage Access Framework GLB picker with safe cold start
+- BaseColor / Normal / Metallic-Roughness PBR, multi-material GLBs and texture reuse
 - direct left/right controller UI interaction
-- direct grip manipulation of the floating control tablet
-- direct one-hand grip manipulation of imported models
-- manual model scale and yaw controls
-- physical SIZE presets based on the model's largest dimension: FIT / 32MM / 75MM / 150MM / 300MM
-- visible import state: `IDLE`, `WAIT`, `READY`, `ERROR`
+- direct no-snap tablet and model grabbing
+- FIT and physical SIZE presets: 32 / 75 / 150 / 300 mm
+- rigged GLB skinning, BONES display, joint manipulation and two-bone IK
+- playback of the first supported GLB animation clip
+- up to 6 models in one scene in v1.5.0
+- visible import state: IDLE / WAIT / READY / ERROR
 
-### Hardware-tested behavior
+## v1.5.0 changes
 
-Quest 3 hardware testing confirmed passthrough, Environment Depth occlusion, dual-controller tablet interaction, GLB picker round trips, textured PBR rendering, direct tablet/model grip, physical SIZE presets, stable restart/UI lifecycle behavior, and smooth operation with validated lower-detail models including the ~100k-triangle class.
+### Restart-safe interaction state
 
-The final v1.0.1 acceptance pass also confirmed that UI labels survive app restart, known-good GLBs import without the previous white artifact, SIZE presets behave plausibly, SCALE returns SIZE to FIT, and cold restart still does not auto-load a prior GLB.
+Every Scene/EGL recreation increments a scene generation. The render interaction state detects the generation change and clears tablet/model grab ownership, trigger/grip edge latches, current selection, placement state and UI control latches. A grip or trigger already held during restart is sampled as the new baseline instead of creating a false press.
 
-A 3.03M-triangle reference reproducibly caused severe XR/system lag in the current renderer. v1 keeps a conservative **2,000,000 triangle import ceiling**.
+This specifically addresses a regression where the tablet could no longer be grabbed after restarting the app because stale CPU-side grab state survived the scene lifecycle.
 
-### v1.0.0 regression and v1.0.1 fix
+### Multi-model scene
 
-The first v1.0.0 candidate exposed three hardware issues:
+Pressing IMPORT GLB archives the currently active model instead of replacing it. The selected next GLB becomes the new active model while older models remain visible and directly grabbable.
 
-- raw glTF `1 unit = 1 metre` was not useful for assets whose authoring unit does not represent intended print/display size,
-- tablet text could disappear after an XR/scene restart,
-- stale OpenGL object names could plausibly reappear as a white rendering artifact after import.
+- maximum scene count: 6 models
+- aggregate estimated scene GPU budget: 768 MiB
+- grab an older model to select it
+- SIZE / SCALE / ROTATE / RESET operate on the selected model
+- the newest model remains the live rig / IK / animation target
+- older rigged models keep a frozen snapshot of their current skin palette when another model is imported
 
-v1.0.1 removes the raw metre toggle and replaces it with explicit physical largest-dimension presets. It also resets/rebuilds UI GPU meshes on scene creation and releases UI/imported-model GL resources on scene destruction so stale handles cannot cross an EGL/scene lifecycle boundary.
+## Import / safety envelope
 
-## Import envelope
+Per imported model:
 
 - GLB file: 192 MiB max
 - vertices: 3,000,000 max
 - indices: 12,000,000 max
 - triangles: 2,000,000 max
 - texture edge: 4096 px max
-- estimated mipmapped texture residency: 160 MiB max
-- estimated total GPU model resources: 256 MiB max
+- estimated mipmapped texture residency: 500 MiB max
+- estimated total GPU model resources: 640 MiB max
 - estimated CPU import working set: 384 MiB max
 
-The most reliable v1 asset path is a binary `.glb` using triangle geometry and conventional PBR textures. Animation, skinning and advanced glTF extension support are outside v1 scope.
-
-## Controls
-
-### Tablet
-
-- Point with either controller and press trigger to activate buttons.
-- Hold trigger while dragging sliders.
-- Put either controller near the tablet and hold Grip/Squeeze to grab it.
-- Move/rotate freely and release Grip to leave it in room space.
-
-### Model
-
-- Put either controller near the model and hold Grip/Squeeze to grab it.
-- Release Grip to leave the model in room space.
-- `SCALE` adjusts fitted display scale.
-- `ROTATE` adjusts model yaw.
-- `SIZE` cycles FIT → 32MM → 75MM → 150MM → 300MM → FIT. The selected millimetre value is the model's largest displayed dimension.
-- Moving `SCALE` returns SIZE to FIT.
-- `RESET ALL` restores default model transform and lighting state.
+v1.5 additionally limits the combined archived + incoming model estimate to 768 MiB. A known 3.03M-triangle reference reproducibly caused severe XR/system lag, so the 2M triangle ceiling remains deliberate.
 
 ## Build
 
-GitHub Actions workflow: `.github/workflows/build-quest-apk.yml`
+The reproducible GitHub Actions pipeline uses Meta OpenXR SDK v85, cgltf v1.15 and pinned stb. Feature code stays in modular scripts/patch fragments; the workflow remains thin.
 
-Pinned dependencies:
-
-- Meta OpenXR SDK v85
-- cgltf v1.15
-- stb image commit `2c980bb59875b0d32144a71867fbdebb2f77cd20`
-
-Build logic lives in `scripts/` and modular patch fragments rather than workflow YAML payloads.
-
-## Install
-
-Download the latest successful `Quest3-MR-ModelViewer-v1.0.1` artifact from GitHub Actions and sideload the APK. Grant requested spatial/environment permissions on first launch.
-
-## Project continuity
-
-- `PROJECT_STATE.md` - current release state and acceptance status
-- `BUILD_STATE.md` - architecture, limits and build implementation notes
-- `AUDIT.md` - key decisions, regressions and hardware findings
-- `HANDOFF.md` - safe continuation point for a future maintainer/chat
-- `scripts/CONTROLS.txt` - compact control reference included in build artifacts
+v1.5.0 is a release candidate until restart behavior and multi-model operation are confirmed on Quest 3 hardware.
