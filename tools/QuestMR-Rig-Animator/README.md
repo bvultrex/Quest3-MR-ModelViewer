@@ -60,7 +60,7 @@ For v0.1 the 3D editor is Blender itself. That keeps GLB round-tripping, skinnin
 - later Quest authoring UI using controller grabs
 
 
-### v0.2.0 Quest Pose
+### v0.2.1 Quest Pose
 
 Quest Pose is now the default authoring mode and mirrors the interaction philosophy of the MR viewer.
 
@@ -107,3 +107,49 @@ QuestMR now creates a non-destructive IK control layer on top of a Mixamo-compat
 IK constraints use two-bone chains with stretching disabled. The exported GLB does not contain the QuestMR helper empties; the glTF exporter samples the constraint-driven armature into the exported animation.
 
 This control layout is also the API target for the planned Pose-from-Reference system: image/video pose detection will set these same control transforms rather than manipulating deform bones directly.
+
+
+## v0.2.1 Pose-safe IK + Reference Media
+
+### Pose-safe handle creation
+
+**Create / Rebuild Handles (Safe)** no longer takes ownership of the current pose.
+
+- the currently evaluated pose is captured
+- old QuestMR IK constraints/handles are removed
+- the pose matrices are restored
+- new controls are created with QuestMR constraints at 0% influence
+- the visible pose therefore remains unchanged
+
+Use **Activate IK From Current Pose** when you are ready. It:
+- snaps all controls onto the current deform-rig pose
+- estimates elbow/knee pole directions
+- automatically searches a pole angle that best preserves the existing bend
+- then enables QuestMR IK at 100%
+
+### Quick Select
+
+The IK panel now includes direct selection buttons for:
+- L/R Hand
+- L/R Foot
+- Pelvis
+- Head
+- L/R Elbow pole
+- L/R Knee pole
+
+Selecting a position control switches to Blender's Move tool. Head/Chest rotation controls use the Rotate tool.
+
+### Reference images and clips
+
+A new **Reference** section accepts still images and movie files.
+
+- Load Reference Image / Clip
+- PNG/JPG/JPEG/WebP/BMP/TIFF
+- MP4/MOV/AVI/MKV/WebM
+- opacity control
+- size control
+- Remove References
+- the reference is created as a non-rendering Image Empty aligned to the current viewport
+- movie references follow the Blender scene timeline
+
+This is the visual-reference layer for the planned automatic pose reconstruction. v0.2.1 does not yet run body-joint detection; it adds the upload/display workflow first.
