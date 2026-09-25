@@ -1,7 +1,7 @@
 bl_info = {
     "name": "QuestMR Rig Animator",
     "author": "QuestMR Project",
-    "version": (0, 2, 0),
+    "version": (0, 2, 1),
     "blender": (4, 4, 0),
     "location": "View3D > Sidebar > QuestMR",
     "description": "Focused GLB skeleton posing, keyframing and animation export",
@@ -13,12 +13,14 @@ from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, St
 from bpy.types import Operator, Panel
 from mathutils import Matrix, Vector
 
-ADDON_VERSION = "0.2.0"
+ADDON_VERSION = "0.2.1"
 ACTION_PREFIX = "QMRA_"
 IK_COLLECTION_NAME = "QuestMR_IK"
 IK_CONSTRAINT_PREFIX = "QMRA_IK_"
 IK_HANDLE_PROP = "qmra_ik_handle"
 IK_ROLE_PROP = "qmra_ik_role"
+REF_COLLECTION_NAME = "QuestMR_Reference"
+REF_OBJECT_PROP = "qmra_reference_object"
 _pose_clipboard = {}
 
 
@@ -183,6 +185,93 @@ def has_ik_system(armature):
     return bool(ik_handles()) and bool(ik_constraints(armature))
 
 
+def capture_pose_matrices(armature):
+    if armature is None:
+        return {}
+    return {bone.name: bone.matrix.copy() for bone in armature.pose.bones}
+
+
+def restore_pose_matrices(context, armature, matrices):
+    if armature is None or not matrices:
+        return
+    for bone in armature.pose.bones:
+        matrix = matrices.get(bone.name)
+        if matrix is not None:
+            try:
+                bone.matrix = matrix
+            except Exception:
+                pass
+    context.view_layer.update()
+
+
+def reference_objects():
+    return [
+        obj for obj in bpy.data.objects
+        if bool(obj.get(REF_OBJECT_PROP, False))
+    ]
+
+
+def ensure_reference_collection(context):
+    collection = bpy.data.collections.get(REF_COLLECTION_NAME)
+    if collection is None:
+        collection = bpy.data.collections.new(REF_COLLECTION_NAME)
+        context.scene.collection.children.link(collection)
+    collection.hide_render = True
+    return collection
+
+
+def clear_reference_objects():
+    for obj in list(reference_objects()):
+        bpy.data.objects.remove(obj, do_unlink=True)
+    collection = bpy.data.collections.get(REF_COLLECTION_NAME)
+    if collection is not None and len(collection.objects) == 0:
+        try:
+            bpy.data.collections.remove(collection)
+        except Exception:
+            pass
+
+
+def update_reference_opacity(self, context):
+    alpha = context.scene.qmra_reference_opacity
+    for obj in reference_objects():
+        try:
+            obj.color[3] = alpha
+            obj.use_empty_image_alpha = True
+        except Exception:
+            pass
+
+
+def update_reference_size(self, context):
+    scale = context.scene.qmra_reference_size
+    armature = active_armature(context)
+    base = estimate_rig_height(armature) if armature is not None else 1.7
+    for obj in reference_objects():
+        try:
+            obj.empty_display_size = base * scale
+        except Exception:
+            pass
+
+
+def reference_center(armature):
+    if armature is None or len(armature.pose.bones) == 0:
+        return Vector((0.0, 0.0, 0.0))
+    points = []
+    for pose_bone in armature.pose.bones:
+        points.append(rig_world_position(armature, pose_bone.head))
+        points.append(rig_world_position(armature, pose_bone.tail))
+    minimum = Vector((
+        min(point.x for point in points),
+        min(point.y for point in points),
+        min(point.z for point in points),
+    ))
+    maximum = Vector((
+        max(point.x for point in points),
+        max(point.y for point in points),
+        max(point.z for point in points),
+    ))
+    return (minimum + maximum) * 0.5
+
+
 def ensure_ik_collection(context):
     collection = bpy.data.collections.get(IK_COLLECTION_NAME)
     if collection is None:
@@ -331,7 +420,7 @@ def create_limb_ik(
     ik.use_rotation = False
     ik.use_stretch = False
     ik.iterations = 64
-    ik.influence = context.scene.qmra_ik_influence
+    ik.influence = 0.0
 
     copy_rotation = end.constraints.new(type="COPY_ROTATION")
     copy_rotation.name = IK_CONSTRAINT_PREFIX + target_role + "_ROT"
@@ -339,7 +428,7 @@ def create_limb_ik(
     copy_rotation.owner_space = "WORLD"
     copy_rotation.target_space = "WORLD"
     copy_rotation.mix_mode = "REPLACE"
-    copy_rotation.influence = context.scene.qmra_ik_influence
+    copy_rotation.influence = 0.0
     return True, []
 
 
@@ -365,7 +454,7 @@ def create_rotation_control(context, armature, role, handle_role, name):
     copy_rotation.owner_space = "WORLD"
     copy_rotation.target_space = "WORLD"
     copy_rotation.mix_mode = "REPLACE"
-    copy_rotation.influence = context.scene.qmra_ik_influence
+    copy_rotation.influence = 0.0
     return True
 
 
@@ -390,7 +479,7 @@ def create_pelvis_control(context, armature):
     copy_location.target = control
     copy_location.owner_space = "WORLD"
     copy_location.target_space = "WORLD"
-    copy_location.influence = context.scene.qmra_ik_influence
+    copy_location.influence = 0.0
 
     copy_rotation = hips.constraints.new(type="COPY_ROTATION")
     copy_rotation.name = IK_CONSTRAINT_PREFIX + "pelvis_ROT"
@@ -398,7 +487,7 @@ def create_pelvis_control(context, armature):
     copy_rotation.owner_space = "WORLD"
     copy_rotation.target_space = "WORLD"
     copy_rotation.mix_mode = "REPLACE"
-    copy_rotation.influence = context.scene.qmra_ik_influence
+    copy_rotation.influence = 0.0
     return True
 
 
@@ -409,6 +498,91 @@ def update_ik_influence(self, context):
     influence = context.scene.qmra_ik_influence
     for constraint in ik_constraints(armature):
         constraint.influence = influence
+
+
+def calibrate_pole_angle(context, armature, ik_constraint, desired_head, desired_tail):
+    owner = None
+    for pose_bone in armature.pose.bones:
+        if ik_constraint in pose_bone.constraints[:]:
+            owner = pose_bone
+            break
+    if owner is None or ik_constraint.type != "IK" or ik_constraint.pole_target is None:
+        return
+
+    import math
+
+    # Keep every QuestMR constraint disabled except the chain currently being calibrated.
+    all_constraints = ik_constraints(armature)
+    for constraint in all_constraints:
+        constraint.influence = 0.0
+
+    best_angle = 0.0
+    best_error = float("inf")
+
+    def test(angle):
+        ik_constraint.pole_angle = angle
+        ik_constraint.influence = 1.0
+        context.view_layer.update()
+        error = (owner.head - desired_head).length + (owner.tail - desired_tail).length
+        ik_constraint.influence = 0.0
+        return error
+
+    samples = 32
+    step = (2.0 * math.pi) / samples
+    for index in range(samples):
+        angle = -math.pi + index * step
+        error = test(angle)
+        if error < best_error:
+            best_error = error
+            best_angle = angle
+
+    refine_step = step / 6.0
+    for offset in range(-6, 7):
+        angle = best_angle + offset * refine_step
+        error = test(angle)
+        if error < best_error:
+            best_error = error
+            best_angle = angle
+
+    ik_constraint.pole_angle = best_angle
+    ik_constraint.influence = 0.0
+    context.view_layer.update()
+
+
+def activate_ik_from_current_pose(context, armature):
+    if armature is None or not has_ik_system(armature):
+        return False
+
+    # Start from the deform rig exactly as it currently looks.
+    for constraint in ik_constraints(armature):
+        constraint.influence = 0.0
+    context.view_layer.update()
+
+    snap_ik_handles_to_pose(context, armature)
+    context.view_layer.update()
+
+    desired = {
+        bone.name: (bone.head.copy(), bone.tail.copy())
+        for bone in armature.pose.bones
+    }
+
+    # Pole-angle calibration makes the two-bone solver choose the same bend
+    # plane as the existing pose before IK takes ownership.
+    for pose_bone in armature.pose.bones:
+        for constraint in pose_bone.constraints:
+            if (
+                constraint.name.startswith(IK_CONSTRAINT_PREFIX)
+                and constraint.type == "IK"
+                and constraint.pole_target is not None
+            ):
+                head, tail = desired[pose_bone.name]
+                calibrate_pole_angle(context, armature, constraint, head, tail)
+
+    context.scene.qmra_ik_influence = 1.0
+    for constraint in ik_constraints(armature):
+        constraint.influence = 1.0
+    context.view_layer.update()
+    return True
 
 
 def key_ik_handles(context):
@@ -622,8 +796,14 @@ class QMRA_OT_create_ik(Operator):
             self.report({"ERROR"}, "No armature found")
             return {"CANCELLED"}
 
+        preserved_pose = capture_pose_matrices(armature)
         delete_ik_system(armature)
         context.view_layer.update()
+        restore_pose_matrices(context, armature, preserved_pose)
+
+        # Handles are created with all QuestMR constraints disabled.
+        # Building/rebuilding the control layer must never change the visible pose.
+        context.scene.qmra_ik_influence = 0.0
 
         missing = []
         created = 0
@@ -652,11 +832,36 @@ class QMRA_OT_create_ik(Operator):
             self.report({"ERROR"}, "No compatible Mixamo-style humanoid bones were detected")
             return {"CANCELLED"}
 
+        restore_pose_matrices(context, armature, preserved_pose)
+        context.view_layer.update()
+
         if missing:
             unique = ", ".join(sorted(set(missing)))
-            self.report({"WARNING"}, f"IK created with missing roles: {unique}")
+            self.report({"WARNING"}, f"Handles created safely; missing roles: {unique}")
         else:
-            self.report({"INFO"}, f"Created {created} IK controls")
+            self.report({"INFO"}, f"Created {created} controls without changing the pose")
+        return {"FINISHED"}
+
+
+class QMRA_OT_activate_ik(Operator):
+    bl_idname = "qmra.activate_ik"
+    bl_label = "Activate IK From Current Pose"
+    bl_description = "Snap controls to the current pose, calibrate limb bend planes, then enable IK"
+
+    def execute(self, context):
+        armature = active_armature(context)
+        if armature is None:
+            self.report({"ERROR"}, "No armature found")
+            return {"CANCELLED"}
+        if not has_ik_system(armature):
+            self.report({"ERROR"}, "Create IK handles first")
+            return {"CANCELLED"}
+
+        if not activate_ik_from_current_pose(context, armature):
+            self.report({"ERROR"}, "Could not activate IK")
+            return {"CANCELLED"}
+
+        self.report({"INFO"}, "IK activated from the current pose")
         return {"FINISHED"}
 
 
@@ -703,6 +908,94 @@ class QMRA_OT_key_ik(Operator):
             return {"CANCELLED"}
         self.report({"INFO"}, f"Keyed {count} IK controls at frame {context.scene.frame_current}")
         return {"FINISHED"}
+
+class QMRA_OT_load_reference(Operator):
+    bl_idname = "qmra.load_reference"
+    bl_label = "Load Reference Image / Clip"
+    bl_description = "Load a still image or movie as a viewport reference"
+
+    filepath: StringProperty(subtype="FILE_PATH")
+    filter_glob: StringProperty(
+        default="*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.tif;*.tiff;*.mp4;*.mov;*.avi;*.mkv;*.webm",
+        options={"HIDDEN"},
+    )
+
+    def execute(self, context):
+        if not self.filepath:
+            return {"CANCELLED"}
+
+        armature = active_armature(context)
+        center = reference_center(armature)
+        size = (estimate_rig_height(armature) if armature is not None else 1.7)
+        size *= context.scene.qmra_reference_size
+
+        before = set(obj.name for obj in bpy.data.objects)
+        try:
+            bpy.ops.object.empty_image_add(
+                filepath=self.filepath,
+                align="VIEW",
+                location=center,
+                background=False,
+                check_existing=True,
+            )
+        except Exception as exc:
+            self.report({"ERROR"}, f"Reference load failed: {exc}")
+            return {"CANCELLED"}
+
+        created = [
+            obj for obj in bpy.data.objects
+            if obj.name not in before and obj.type == "EMPTY" and obj.empty_display_type == "IMAGE"
+        ]
+        obj = created[-1] if created else context.object
+        if obj is None:
+            self.report({"ERROR"}, "Blender did not create a reference image object")
+            return {"CANCELLED"}
+
+        # Move reference into a dedicated non-rendering collection.
+        collection = ensure_reference_collection(context)
+        for current_collection in list(obj.users_collection):
+            current_collection.objects.unlink(obj)
+        collection.objects.link(obj)
+
+        obj.name = "QMRA_Reference"
+        obj[REF_OBJECT_PROP] = True
+        obj.empty_display_size = size
+        obj.empty_image_depth = "BACK"
+        obj.empty_image_side = "DOUBLE_SIDED"
+        obj.show_in_front = False
+        obj.use_empty_image_alpha = True
+        obj.color[3] = context.scene.qmra_reference_opacity
+        obj.hide_render = True
+
+        # Movie/image-sequence references follow the Blender scene timeline.
+        try:
+            obj.image_user.use_auto_refresh = True
+            obj.image_user.frame_start = context.scene.frame_start
+        except Exception:
+            pass
+
+        context.scene.qmra_reference_path = self.filepath
+        context.scene.qmra_reference_name = obj.data.name if obj.data else "Reference"
+        self.report({"INFO"}, f"Loaded reference: {context.scene.qmra_reference_name}")
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {"RUNNING_MODAL"}
+
+
+class QMRA_OT_clear_reference(Operator):
+    bl_idname = "qmra.clear_reference"
+    bl_label = "Remove References"
+    bl_description = "Remove QuestMR viewport reference images and clips"
+
+    def execute(self, context):
+        clear_reference_objects()
+        context.scene.qmra_reference_path = ""
+        context.scene.qmra_reference_name = ""
+        self.report({"INFO"}, "Reference media removed")
+        return {"FINISHED"}
+
 
 class QMRA_OT_new_clip(Operator):
     bl_idname = "qmra.new_clip"
@@ -1051,25 +1344,40 @@ class QMRA_PT_main(Panel):
         else:
             io.label(text="Free Pose allows G / R / S on all bones.")
 
+        reference = layout.box()
+        reference.label(text="2 • Reference", icon="IMAGE_DATA")
+        reference.operator("qmra.load_reference", icon="FILE_IMAGE")
+        row = reference.row(align=True)
+        row.prop(scene, "qmra_reference_opacity", text="Opacity", slider=True)
+        row.prop(scene, "qmra_reference_size", text="Size")
+        if scene.qmra_reference_name:
+            reference.label(text=f"Loaded: {scene.qmra_reference_name}")
+            reference.label(text="Movie references follow the scene timeline.")
+            reference.operator("qmra.clear_reference", icon="X")
+        else:
+            reference.label(text="Load a still image or video clip for manual matching.")
+
         ik = layout.box()
-        ik.label(text="2 • IK Handles", icon="CON_KINEMATIC")
+        ik.label(text="3 • IK Handles", icon="CON_KINEMATIC")
         ik.prop(scene, "qmra_ik_influence", text="IK Influence", slider=True)
         ik.prop(scene, "qmra_ik_handle_scale", text="Handle Size")
         ik.prop(scene, "qmra_key_ik_with_pose", text="Key IK with Key Pose")
-        ik.operator("qmra.create_ik", icon="CON_KINEMATIC")
+        ik.operator("qmra.create_ik", text="Create / Rebuild Handles (Safe)", icon="CON_KINEMATIC")
+        ik.operator("qmra.activate_ik", text="Activate IK From Current Pose", icon="PLAY")
         row = ik.row(align=True)
         row.operator("qmra.snap_ik", icon="SNAP_ON")
         row.operator("qmra.key_ik", icon="KEY_HLT")
         ik.operator("qmra.remove_ik", icon="X")
         if armature and has_ik_system(armature):
-            ik.label(text=f"Active: {len(ik_handles())} controls")
+            state = "ACTIVE" if scene.qmra_ik_influence > 0.001 else "READY / DISABLED"
+            ik.label(text=f"{state}: {len(ik_handles())} controls")
             ik.label(text="Cubes = hands/feet • spheres = elbow/knee poles")
             ik.label(text="Circle = pelvis • arrows = chest/head")
         else:
             ik.label(text="Create handles after importing a Mixamo humanoid.")
 
         clip = layout.box()
-        clip.label(text="3 • Animation Clip", icon="ACTION")
+        clip.label(text="4 • Animation Clip", icon="ACTION")
         clip.prop(scene, "qmra_clip_name", text="Name")
         clip.operator("qmra.new_clip", icon="ADD")
         row = clip.row(align=True)
@@ -1079,7 +1387,7 @@ class QMRA_PT_main(Panel):
         clip.operator("qmra.apply_timeline", icon="CHECKMARK")
 
         timeline = layout.box()
-        timeline.label(text="4 • Pose + Keyframes", icon="KEY_HLT")
+        timeline.label(text="5 • Pose + Keyframes", icon="KEY_HLT")
         timeline.prop(scene, "qmra_key_scope", expand=True)
         timeline.prop(scene, "qmra_interpolation", expand=True)
         timeline.prop(scene, "frame_current", text="Frame")
@@ -1107,7 +1415,7 @@ class QMRA_PT_main(Panel):
             timeline.label(text="Viewport: select bones, then G / R / S to pose.")
 
         out = layout.box()
-        out.label(text="5 • Export", icon="EXPORT")
+        out.label(text="6 • Export", icon="EXPORT")
         out.operator("qmra.export_glb", icon="EXPORT")
         if scene.qmra_last_export:
             out.label(text="Last export:")
@@ -1124,9 +1432,12 @@ classes = (
     QMRA_OT_import_glb,
     QMRA_OT_prepare_rig,
     QMRA_OT_create_ik,
+    QMRA_OT_activate_ik,
     QMRA_OT_remove_ik,
     QMRA_OT_snap_ik,
     QMRA_OT_key_ik,
+    QMRA_OT_load_reference,
+    QMRA_OT_clear_reference,
     QMRA_OT_new_clip,
     QMRA_OT_key_pose,
     QMRA_OT_delete_pose_keys,
@@ -1200,6 +1511,29 @@ def register():
         description="When IK controls exist, Key Pose keys the controls instead of deform bones",
         default=True,
     )
+    bpy.types.Scene.qmra_reference_path = StringProperty(
+        name="Reference Path",
+        default="",
+    )
+    bpy.types.Scene.qmra_reference_name = StringProperty(
+        name="Reference Name",
+        default="",
+    )
+    bpy.types.Scene.qmra_reference_opacity = FloatProperty(
+        name="Reference Opacity",
+        default=0.55,
+        min=0.05,
+        max=1.0,
+        subtype="FACTOR",
+        update=update_reference_opacity,
+    )
+    bpy.types.Scene.qmra_reference_size = FloatProperty(
+        name="Reference Size",
+        default=1.0,
+        min=0.2,
+        max=4.0,
+        update=update_reference_size,
+    )
     bpy.types.Scene.qmra_show_bone_names = BoolProperty(
         name="Names",
         description="Display bone names in the 3D viewport",
@@ -1239,6 +1573,10 @@ def unregister():
         "qmra_ik_influence",
         "qmra_ik_handle_scale",
         "qmra_key_ik_with_pose",
+        "qmra_reference_path",
+        "qmra_reference_name",
+        "qmra_reference_opacity",
+        "qmra_reference_size",
         "qmra_show_bone_names",
         "qmra_key_scope",
         "qmra_interpolation",
