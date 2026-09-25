@@ -2,12 +2,14 @@
 
 **Project:** Quest3 MR Model Viewer  
 **Target:** Meta Quest 3 / Quest 3S standalone  
-**Current milestone:** v1.5.0 candidate  
+**Current milestone:** v1.6.0 candidate  
 **Date:** 2026-09-25
 
 ## Source of truth
 
-The repository was re-audited before v1.5 work. The latest green pre-v1.5 checkpoint is **v1.4.1**, commit `6ac8b0c94850e65afa88a290a606bd5242946446`. Older project documents had remained at v1.0.1 and were stale.
+Latest green checkpoint before v1.6 work: **v1.5.1**, commit `db70c49dd7b1c392432dfd85fd3100e2ab8e080a`.
+
+v1.5.1 contains restart-safe interaction state, the six-model scene, selected-model transforms and safe REMOVE MODEL deletion.
 
 ## Current capability
 
@@ -19,27 +21,34 @@ The repository was re-audited before v1.5 work. The latest green pre-v1.5 checkp
 - skinning and live joint palette
 - BONES visualization and controller joint manipulation
 - two-bone IK for supported limb endpoints
-- playback of the first supported GLB animation clip
-- v1.4.1 root-scale preservation for centimeter-authored animation rigs
+- GLB animation playback
+- root-scale preservation for centimeter-authored animation rigs
+- up to six simultaneous scene models
+- selected-model removal
 
-## v1.5.0 candidate
+## v1.6.0 candidate
 
-v1.5 addresses two requested changes.
+### Animation transport
 
-### Interaction reset after restart
+- PLAY/PAUSE label and toggle
+- live progress track
+- Trigger-drag scrubbing
+- scrubbing pauses playback and immediately resamples the live rig pose
+- animation remains intentionally restricted to the newest/live model
 
-A scene-generation epoch now invalidates render-local CPU interaction latches whenever Scene/Create recreates the XR/EGL scene. Tablet/model grab ownership, press-edge state and selection start cleanly. Held inputs are baselined on the first new frame so they cannot fabricate a grab press.
+### Scene model window
 
-### Multiple models
+The tablet contains six compact SCENE MODELS rows matching the scene limit.
 
-IMPORT GLB archives the active model and loads the next model into the same scene.
+- loaded rows are visually active
+- selected row is highlighted
+- newest/live row gets an extra marker
+- clicking a loaded row selects that model
+- transform and REMOVE MODEL controls then target that selection
 
-- max 6 models
-- 768 MiB aggregate estimated scene GPU budget
-- any scene model can be grabbed and selected
-- selected-model SIZE / SCALE / ROTATE / RESET
-- newest model is the live animation/IK rig
-- older rigs freeze their current skin-palette pose
+### GLB-only picker
+
+The Storage Access Framework request now uses `model/gltf-binary` instead of `*/*` and generic fallback MIME types. A second validation rejects selections that are neither named `.glb` nor reported as `model/gltf-binary`.
 
 ## Current guards
 
@@ -49,11 +58,13 @@ Scene: maximum 6 models and 768 MiB aggregate estimated GPU resources.
 
 ## Acceptance status
 
-v1.5.0 is **not hardware accepted yet**. Required Quest test:
+v1.6.0 requires Quest hardware acceptance:
 
-1. restart app and confirm tablet can immediately be grabbed again,
-2. restart while holding Grip and confirm no phantom grab,
-3. import model A, place it, import B and confirm A remains,
-4. grab A or B and verify controls target the selected model,
-5. verify newest rig retains PLAY/BONES/IK and older rig snapshots remain visible,
-6. confirm safe cold start remains intact.
+1. verify PLAY/PAUSE toggles the live animation,
+2. scrub from start to end and confirm immediate pose updates,
+3. confirm scrubbing pauses playback,
+4. load several models and select each from SCENE MODELS,
+5. verify SIZE/SCALE/ROTATE/RESET/REMOVE target the selected row,
+6. confirm the newest rig remains the only live animation/IK target,
+7. open IMPORT GLB and confirm unrelated formats are no longer presented by the Quest document provider,
+8. restart and re-check tablet grabbing and safe cold start.
