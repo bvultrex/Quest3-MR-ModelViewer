@@ -1,10 +1,10 @@
 # Build architecture state
 
-Current candidate: **v1.5.0**. Latest green checkpoint before this candidate: **v1.4.1**.
+Current candidate: **v1.6.0**. Latest green checkpoint before this candidate: **v1.5.1** (`db70c49d`).
 
 ## Patch stack
 
-The pipeline starts from Meta OpenXR SDK v85 and applies the modular patch series through `patch_v062`.
+The pipeline starts from Meta OpenXR SDK v85 and applies the modular patch series through `patch_v064`.
 
 Important recent phases:
 
@@ -16,33 +16,34 @@ Important recent phases:
 - v1.4.0: two-bone IK + GLB animation player
 - v1.4.1: preserve external/root scale during animation sampling
 - v1.5.0 / patch_v062: restart interaction epoch + multi-model scene
+- v1.5.1 / patch_v063: deferred selected-model deletion
+- v1.6.0 / patch_v064: PLAY/PAUSE UI, animation scrubber and six-slot scene model selector
 
 Pinned dependencies remain Meta OpenXR SDK v85, cgltf v1.15 and stb `2c980bb59875b0d32144a71867fbdebb2f77cd20`.
 
-## Restart state rule
+## Animation UI architecture
 
-OpenGL lifecycle cleanup is not sufficient for interaction state. The tablet/model grab code keeps render-local static CPU variables. v1.5 introduces `gQuestMrSceneGeneration`, incremented at Scene::Create. RenderFrame detects a generation change and resets all grab owners, previous trigger/grip states, selection and placement/UI latches. The first new frame baselines currently held inputs before computing press edges.
+The first supported animation clip remains represented by `gQuestMrAnimChannels`, `gQuestMrAnimDuration`, `gQuestMrAnimTime` and `gQuestMrAnimPlaying`.
 
-Never carry either GL object names **or CPU grab/press ownership** across a scene lifecycle boundary.
+The v1.6 scrubber maps controller-ray local X across the track to normalized clip time. While Trigger is held on the track:
 
-## Multi-model architecture
+- playback is paused,
+- `gQuestMrAnimTime` is updated,
+- `QuestMrSampleAnimation` runs immediately,
+- the joint palette is rebuilt.
 
-The newest imported GLB remains in `gQuestMrImportedMesh` and is the live rig/animation target. Before another picker transaction, the active model is moved into `gQuestMrSceneObjects`.
+Archived rigs remain frozen and cannot be scrubbed or played.
 
-Each archived scene object owns:
+## Scene selector architecture
 
-- mesh GPU handles/materials/draw ranges
-- room-space root/default transform
-- SIZE/SCALE/ROTATE state
-- frozen joint-palette snapshot
-- estimated GPU cost
+The six SCENE MODELS slots directly mirror the maximum scene count. Archived objects occupy the first rows; the newest live model occupies the last loaded row. Selection only changes `selectedArchivedModel`; deletion remains deferred through the v1.5.1 pending-removal path.
 
-Archived models remain rendered and directly grabbable. Grabbing selects them for transform controls. The newest model alone retains mutable rig/IK/animation state, preventing multiple heavyweight animation systems from running concurrently on Quest.
+## Picker rule
 
-Scene limits: 6 models, 768 MiB aggregate estimated GPU cost.
+The generated Android helper Activity now requests `model/gltf-binary` only and validates the returned document by `.glb` display name or GLB MIME type. Safe cold-start behavior and stale-import clearing remain unchanged.
 
 ## Safety
 
 Per model: 192 MiB file, 3M vertices, 12M indices, 2M triangles, 4096px edge, 500 MiB mipmapped textures, 640 MiB estimated GPU, 384 MiB CPU import estimate.
 
-The 2M triangle limit remains based on hardware evidence. A ~3.03M-triangle reference caused severe sustained XR/system lag.
+Scene limits: 6 models, 768 MiB aggregate estimated GPU cost.
