@@ -52,6 +52,7 @@ run_fragmented_patch patch_v060
 run_fragmented_patch patch_v061
 run_fragmented_patch patch_v062
 run_fragmented_patch patch_v063
+run_fragmented_patch patch_v064
 
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
@@ -112,6 +113,10 @@ grep -n 'drawSceneObject' "$SRC"
 grep -n 'REMOVE MODEL' "$SRC"
 grep -n 'removeModelPendingIndex' "$SRC"
 grep -n 'removed selected model target=' "$SRC"
+grep -n 'PLAY/PAUSE' "$SRC"
+grep -n 'kAnimationY' "$SRC"
+grep -n 'SCENE MODELS' "$SRC"
+grep -n 'animationTrackTouchNow' "$SRC"
 grep -n 'gQuestMrPoseActive' "$SRC"
 grep -n 'glBindBufferBase(GL_UNIFORM_BUFFER, 3, gQuestMrJointUbo)' "$SRC"
 grep -n 'VERTEX_ATTRIBUTE_LOCATION_JOINTS' "$SRC"
@@ -123,4 +128,6 @@ grep -n 'peak-memory guard' "$SRC"
 grep -n 'returnToViewer' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
 grep -n 'QUESTMR_V039_VISIBLE_PICKER' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
 grep -n 'QUESTMR_V041_CLEAR_STALE_IMPORT' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
+grep -n 'QUESTMR_V160_GLB_ONLY' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
+grep -n 'setType("model/gltf-binary")' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
 grep -n 'Theme.Material.NoActionBar' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/AndroidManifest.xml
