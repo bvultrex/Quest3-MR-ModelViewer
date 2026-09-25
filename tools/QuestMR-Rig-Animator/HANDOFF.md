@@ -44,7 +44,7 @@ Blender is used as the GLB/skinning/animation backend. The QuestMR extension sup
 Do not merge authoring into Quest3 MR Model Viewer unless there is a specific runtime need. Keep the viewer lean and use shared GLB animation conventions as the bridge between projects.
 
 
-## v0.2.0 pose policy
+## v0.2.1 pose policy
 
 Default authoring mode is **Quest Pose**:
 - non-root bones: rotation only
@@ -55,7 +55,7 @@ Default authoring mode is **Quest Pose**:
 **Free Pose** restores unrestricted location/rotation/scale for advanced corrections.
 
 
-## v0.2.0 IK architecture
+## v0.2.1 IK architecture
 
 Semantic helper roles:
 - hand_l / elbow_l
@@ -74,3 +74,24 @@ Mixamo bone aliases are normalized so names such as `mixamorig:LeftForeArm` reso
 Export must continue to exclude IK helper empties and bake/sample their evaluated effect onto the armature.
 
 This semantic target layer is the planned integration point for MediaPipe/reference-image pose matching.
+
+
+## v0.2.1 interaction changes
+
+Create/Rebuild IK is now intentionally non-destructive:
+1. capture current evaluated pose matrices,
+2. remove old QuestMR IK,
+3. restore pose,
+4. create controls with constraints disabled,
+5. user explicitly runs **Activate IK From Current Pose**.
+
+Activation snaps semantic handles and searches pole angles for the closest reproduction of the current limb bend before enabling constraints.
+
+Reference media:
+- `QuestMR_Reference` non-rendering collection
+- Image Empty based still/movie reference
+- opacity + size controls
+- media aligned to the current viewport on load
+
+Next milestone:
+Pose-from-Reference should consume the loaded reference and write target positions/orientations into existing semantic IK roles. Do not bypass the IK target layer by writing deform-bone transforms directly.
