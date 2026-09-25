@@ -2,75 +2,58 @@
 
 **Project:** Quest3 MR Model Viewer  
 **Target:** Meta Quest 3 / Quest 3S standalone  
-**Current milestone:** v1.0.1 accepted final release  
-**Date:** 2026-09-18
+**Current milestone:** v1.5.0 candidate  
+**Date:** 2026-09-25
 
-## Release state
+## Source of truth
 
-**v1.0.1 is hardware-accepted on Quest 3 and is the final v1.0 release.**
+The repository was re-audited before v1.5 work. The latest green pre-v1.5 checkpoint is **v1.4.1**, commit `6ac8b0c94850e65afa88a290a606bd5242946446`. Older project documents had remained at v1.0.1 and were stale.
 
-The first v1.0.0 candidate was rejected after Quest testing exposed three regressions: misleading raw metre scaling, UI labels disappearing after restart, and a white rendering artifact during a later import. v1.0.1 corrected those issues and passed the final on-headset acceptance pass.
+## Current capability
 
-## Current architecture
+- passthrough + filtered Meta Environment Depth occlusion
+- runtime GLB import with safe cold start
+- PBR and multi-material rendering
+- dual-controller tablet/model manipulation
+- physical SIZE presets
+- skinning and live joint palette
+- BONES visualization and controller joint manipulation
+- two-bone IK for supported limb endpoints
+- playback of the first supported GLB animation clip
+- v1.4.1 root-scale preservation for centimeter-authored animation rigs
 
-- Native Android + C++ OpenXR on Meta OpenXR SDK v85 `XrPassthroughOcclusion`.
-- `XR_META_environment_depth` real-world occlusion.
-- cgltf GLB parsing and stb_image embedded PNG/JPEG decoding.
-- OpenGL ES PBR BaseColor / Normal / Metallic-Roughness path.
-- Dual-controller trigger + squeeze/grip actions.
-- Android Storage Access Framework picker.
-- GitHub Actions builds, debug-signs and verifies ARM64 APK artifacts.
+## v1.5.0 candidate
 
-## Hardware-confirmed features
+v1.5 addresses two requested changes.
 
-- Quest 3 standalone launch and permissions.
-- Passthrough + Environment Depth occlusion.
-- Stable floating tablet interaction with both controllers.
-- Direct tablet grab with full 6DoF orientation.
-- GLB picker selection and return.
-- Textured GLB rendering and lighting controls.
-- Direct one-hand model grab without snap.
-- Stable lower-detail rendering including the ~100k-triangle class.
-- UI labels survive close/reopen and scene restart.
-- Known-good GLBs import without the prior white artifact.
-- SIZE presets behave plausibly at FIT / 32MM / 75MM / 150MM / 300MM.
-- Manual SCALE returns SIZE to FIT.
-- Cold restart does not auto-load a prior GLB.
+### Interaction reset after restart
 
-## v1.0.1 final changes
+A scene-generation epoch now invalidates render-local CPU interaction latches whenever Scene/Create recreates the XR/EGL scene. Tablet/model grab ownership, press-edge state and selection start cleanly. Held inputs are baselined on the first new frame so they cannot fabricate a grab press.
 
-- Raw `1 glTF unit = 1 metre` mode removed.
-- `SIZE` cycles FIT / 32MM / 75MM / 150MM / 300MM using the model's largest dimension.
-- Manual SCALE returns SIZE to FIT.
-- Static UI GPU meshes are invalidated/rebuilt on Scene::Create.
-- UI text and imported-model GL resources are explicitly released on Scene::Destroy.
-- Import status remains IDLE / WAIT / READY / ERROR.
+### Multiple models
 
-## Safety envelope
+IMPORT GLB archives the active model and loads the next model into the same scene.
 
-- 192 MiB maximum GLB file size.
-- 3,000,000 vertices.
-- 12,000,000 indices.
-- 2,000,000 triangles.
-- 4096 px maximum texture edge.
-- 160 MiB estimated mipmapped texture residency.
-- 256 MiB estimated total GPU resources.
-- 384 MiB estimated CPU import working set.
-- Persisted source GLB is never auto-loaded on cold start.
+- max 6 models
+- 768 MiB aggregate estimated scene GPU budget
+- any scene model can be grabbed and selected
+- selected-model SIZE / SCALE / ROTATE / RESET
+- newest model is the live animation/IK rig
+- older rigs freeze their current skin-palette pose
 
-## Known performance limit
+## Current guards
 
-A 3.03M-triangle reference with three 2K textures reproducibly caused severe sustained XR/system lag despite passing memory preflight. Keep the 2M renderer ceiling unless a future renderer-side LOD/simplification strategy is added.
+Per model: 192 MiB GLB, 3M vertices, 12M indices, 2M triangles, 4096 texture edge, 500 MiB estimated mipmapped texture residency, 640 MiB estimated GPU resources, 384 MiB CPU import estimate.
 
-## Acceptance result
+Scene: maximum 6 models and 768 MiB aggregate estimated GPU resources.
 
-Final Quest 3 acceptance passed:
+## Acceptance status
 
-- labels remain visible across restart,
-- known-good GLB import reaches READY with no white artifact,
-- SIZE presets are physically plausible,
-- SCALE returns SIZE to FIT,
-- tablet and model grip remain stable,
-- cold restart remains safe and does not auto-load cached content.
+v1.5.0 is **not hardware accepted yet**. Required Quest test:
 
-**Status: COMPLETE / ACCEPTED.** Future work belongs to v1.1 or later.
+1. restart app and confirm tablet can immediately be grabbed again,
+2. restart while holding Grip and confirm no phantom grab,
+3. import model A, place it, import B and confirm A remains,
+4. grab A or B and verify controls target the selected model,
+5. verify newest rig retains PLAY/BONES/IK and older rig snapshots remain visible,
+6. confirm safe cold start remains intact.
