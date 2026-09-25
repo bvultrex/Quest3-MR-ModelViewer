@@ -1,0 +1,457 @@
+from pathlib import Path
+
+activity = Path(
+    'meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/'
+    'questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java'
+)
+
+# v1.6.1: Meta's DocumentsUI does not reliably classify .glb as
+# model/gltf-binary and still renders non-matching files as disabled rows.
+# Replace the single-file SAF picker with a persisted tree grant plus our own
+# tiny browser that renders directories and .glb files only.
+activity.write_text(r'''package com.bvultrex.quest3mrmodelviewer;
+
+import android.app.Activity;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.database.Cursor;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.net.Uri;
+import android.os.Bundle;
+import android.provider.DocumentsContract;
+import android.view.Gravity;
+import android.view.View;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+
+public class QuestMrPickerActivity extends Activity {
+    private static final int QUESTMR_PICK_MODEL_FOLDER = 4243;
+    private static final String PREFS = "questmr_glb_picker";
+    private static final String PREF_TREE_URI = "tree_uri";
+
+    private Uri treeUri;
+    private Uri currentDir;
+    private String currentDirName = "";
+    private final ArrayDeque<Uri> navUris = new ArrayDeque<>();
+    private final ArrayDeque<String> navNames = new ArrayDeque<>();
+
+    private LinearLayout fileList;
+    private TextView folderLabel;
+    private TextView statusLabel;
+    private Button upButton;
+
+    private static final class Entry {
+        final Uri uri;
+        final String name;
+        final boolean directory;
+
+        Entry(Uri uri, String name, boolean directory) {
+            this.uri = uri;
+            this.name = name;
+            this.directory = directory;
+        }
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        // Keep the proven Quest transition from immersive XR into a conventional
+        // 2D Android activity while choosing a model.
+        getWindow().setStatusBarColor(Color.BLACK);
+        getWindow().setNavigationBarColor(Color.BLACK);
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+
+        clearStaleImport();
+        buildUi();
+
+        String saved = getSharedPreferences(PREFS, MODE_PRIVATE)
+            .getString(PREF_TREE_URI, null);
+        if (saved == null || saved.isEmpty()) {
+            chooseModelFolder();
+        } else {
+            try {
+                openTree(Uri.parse(saved));
+            } catch (Exception ignored) {
+                forgetTree();
+                chooseModelFolder();
+            }
+        }
+    }
+
+    private void clearStaleImport() {
+        // QUESTMR_V161_CLEAR_STALE_IMPORT
+        try {
+            File staleTarget = new File(getFilesDir(), "questmr_import.glb");
+            File staleTemp = new File(getFilesDir(), "questmr_import.tmp");
+            if (staleTarget.exists()) {
+                staleTarget.delete();
+            }
+            if (staleTemp.exists()) {
+                staleTemp.delete();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private TextView textView(String text, float sizeSp, int color) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(sizeSp);
+        view.setTextColor(color);
+        view.setPadding(18, 12, 18, 12);
+        return view;
+    }
+
+    private Button button(String text) {
+        Button button = new Button(this);
+        button.setText(text);
+        button.setAllCaps(false);
+        button.setTextSize(15.0f);
+        button.setMinHeight(58);
+        return button;
+    }
+
+    private void buildUi() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.rgb(16, 18, 22));
+        root.setPadding(22, 18, 22, 18);
+
+        TextView title = textView("GLB MODEL PICKER", 22.0f, Color.WHITE);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(title);
+
+        TextView info = textView(
+            "Only folders and .glb models are shown. Choose a model folder once; "
+                + "the permission is remembered for later imports.",
+            14.0f,
+            Color.rgb(195, 201, 212));
+        root.addView(info);
+
+        LinearLayout toolbar = new LinearLayout(this);
+        toolbar.setOrientation(LinearLayout.HORIZONTAL);
+        toolbar.setGravity(Gravity.CENTER_VERTICAL);
+
+        upButton = button("Up");
+        upButton.setEnabled(false);
+        upButton.setOnClickListener(v -> goUp());
+        toolbar.addView(
+            upButton,
+            new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        Button changeFolder = button("Change folder");
+        changeFolder.setOnClickListener(v -> chooseModelFolder());
+        toolbar.addView(
+            changeFolder,
+            new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        Button refresh = button("Refresh");
+        refresh.setOnClickListener(v -> {
+            if (currentDir != null) {
+                renderDirectory(currentDir, currentDirName);
+            }
+        });
+        toolbar.addView(
+            refresh,
+            new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f));
+
+        root.addView(toolbar);
+
+        folderLabel = textView("No model folder selected", 15.0f, Color.rgb(125, 203, 255));
+        folderLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(folderLabel);
+
+        statusLabel = textView("", 13.0f, Color.rgb(214, 220, 230));
+        root.addView(statusLabel);
+
+        ScrollView scroll = new ScrollView(this);
+        fileList = new LinearLayout(this);
+        fileList.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(fileList);
+        root.addView(
+            scroll,
+            new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                0,
+                1.0f));
+
+        setContentView(root);
+    }
+
+    private void chooseModelFolder() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        try {
+            startActivityForResult(intent, QUESTMR_PICK_MODEL_FOLDER);
+        } catch (Exception ignored) {
+            statusLabel.setText("Could not open Android folder picker.");
+        }
+    }
+
+    private void forgetTree() {
+        getSharedPreferences(PREFS, MODE_PRIVATE)
+            .edit()
+            .remove(PREF_TREE_URI)
+            .apply();
+        treeUri = null;
+        currentDir = null;
+        navUris.clear();
+        navNames.clear();
+    }
+
+    private void openTree(Uri uri) {
+        treeUri = uri;
+        String rootId = DocumentsContract.getTreeDocumentId(treeUri);
+        currentDir = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId);
+        currentDirName = queryDisplayName(currentDir);
+        if (currentDirName == null || currentDirName.isEmpty()) {
+            currentDirName = "Model folder";
+        }
+        navUris.clear();
+        navNames.clear();
+        renderDirectory(currentDir, currentDirName);
+    }
+
+    private String queryDisplayName(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(
+                uri,
+                new String[] { DocumentsContract.Document.COLUMN_DISPLAY_NAME },
+                null,
+                null,
+                null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                return cursor.getString(0);
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
+    private List<Entry> queryEntries(Uri dir) {
+        List<Entry> result = new ArrayList<>();
+        try {
+            String parentId = DocumentsContract.getDocumentId(dir);
+            Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId);
+            String[] columns = new String[] {
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE
+            };
+
+            try (Cursor cursor = getContentResolver().query(
+                    children,
+                    columns,
+                    null,
+                    null,
+                    null)) {
+                if (cursor != null) {
+                    while (cursor.moveToNext()) {
+                        String documentId = cursor.getString(0);
+                        String name = cursor.getString(1);
+                        String mime = cursor.getString(2);
+                        if (name == null || documentId == null) {
+                            continue;
+                        }
+
+                        boolean directory =
+                            DocumentsContract.Document.MIME_TYPE_DIR.equals(mime);
+                        boolean glb = name.toLowerCase(Locale.ROOT).endsWith(".glb");
+                        if (!directory && !glb) {
+                            continue;
+                        }
+
+                        Uri child = DocumentsContract.buildDocumentUriUsingTree(
+                            treeUri,
+                            documentId);
+                        result.add(new Entry(child, name, directory));
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            statusLabel.setText(
+                "Folder permission is no longer valid. Choose the model folder again.");
+        }
+
+        Collections.sort(
+            result,
+            new Comparator<Entry>() {
+                @Override
+                public int compare(Entry a, Entry b) {
+                    if (a.directory != b.directory) {
+                        return a.directory ? -1 : 1;
+                    }
+                    return a.name.compareToIgnoreCase(b.name);
+                }
+            });
+        return result;
+    }
+
+    private void renderDirectory(Uri dir, String name) {
+        currentDir = dir;
+        currentDirName = name;
+        folderLabel.setText("Folder: " + name);
+        upButton.setEnabled(!navUris.isEmpty());
+        fileList.removeAllViews();
+
+        List<Entry> entries = queryEntries(dir);
+        int glbCount = 0;
+        for (Entry entry : entries) {
+            if (!entry.directory) {
+                glbCount++;
+            }
+
+            Button row = button(
+                (entry.directory ? "[DIR]  " : "[GLB]  ") + entry.name);
+            row.setGravity(Gravity.CENTER_VERTICAL | Gravity.LEFT);
+            row.setTextColor(
+                entry.directory
+                    ? Color.rgb(182, 217, 255)
+                    : Color.WHITE);
+            row.setOnClickListener(v -> {
+                if (entry.directory) {
+                    navUris.push(currentDir);
+                    navNames.push(currentDirName);
+                    renderDirectory(entry.uri, entry.name);
+                } else {
+                    importGlb(entry.uri, entry.name);
+                }
+            });
+            fileList.addView(
+                row,
+                new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+
+        if (entries.isEmpty()) {
+            TextView empty = textView(
+                "No subfolders or .glb files found here.",
+                16.0f,
+                Color.rgb(180, 185, 195));
+            fileList.addView(empty);
+        }
+
+        statusLabel.setText(
+            glbCount == 1
+                ? "1 GLB model in this folder"
+                : glbCount + " GLB models in this folder");
+    }
+
+    private void goUp() {
+        if (navUris.isEmpty()) {
+            return;
+        }
+        Uri parent = navUris.pop();
+        String parentName = navNames.isEmpty() ? "Model folder" : navNames.pop();
+        renderDirectory(parent, parentName);
+    }
+
+    private void importGlb(Uri uri, String displayName) {
+        if (displayName == null
+                || !displayName.toLowerCase(Locale.ROOT).endsWith(".glb")) {
+            return;
+        }
+
+        statusLabel.setText("Importing " + displayName + " ...");
+
+        File dir = getFilesDir();
+        File temp = new File(dir, "questmr_import.tmp");
+        File target = new File(dir, "questmr_import.glb");
+
+        try (InputStream input = getContentResolver().openInputStream(uri);
+             OutputStream output = new FileOutputStream(temp)) {
+            if (input == null) {
+                statusLabel.setText("Could not open selected GLB.");
+                return;
+            }
+
+            byte[] buffer = new byte[65536];
+            int count;
+            while ((count = input.read(buffer)) > 0) {
+                output.write(buffer, 0, count);
+            }
+            output.flush();
+
+            if (target.exists() && !target.delete()) {
+                statusLabel.setText("Could not replace previous import.");
+                return;
+            }
+
+            if (!temp.renameTo(target)) {
+                try (InputStream retryInput = new FileInputStream(temp);
+                     OutputStream retryOutput = new FileOutputStream(target)) {
+                    while ((count = retryInput.read(buffer)) > 0) {
+                        retryOutput.write(buffer, 0, count);
+                    }
+                    retryOutput.flush();
+                }
+                temp.delete();
+            }
+
+            finish();
+        } catch (Exception ignored) {
+            temp.delete();
+            statusLabel.setText("GLB import failed.");
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != QUESTMR_PICK_MODEL_FOLDER) {
+            return;
+        }
+
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+            if (treeUri == null) {
+                finish();
+            }
+            return;
+        }
+
+        Uri uri = data.getData();
+        int takeFlags = data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION;
+        try {
+            getContentResolver().takePersistableUriPermission(uri, takeFlags);
+        } catch (Exception ignored) {
+            // Some providers grant access for the process but do not support
+            // persistable permissions. The current session can still proceed.
+        }
+
+        getSharedPreferences(PREFS, MODE_PRIVATE)
+            .edit()
+            .putString(PREF_TREE_URI, uri.toString())
+            .apply();
+
+        try {
+            openTree(uri);
+        } catch (Exception ignored) {
+            forgetTree();
+            statusLabel.setText("Could not read selected model folder.");
+        }
+    }
+}
+''')
+
+print('QUESTMR_V161_CUSTOM_GLB_BROWSER: ON')
+print('v1.6.1 picker renders only directories and .glb files')
+print('v1.6.1 model-folder SAF grant is persisted when provider supports it')
