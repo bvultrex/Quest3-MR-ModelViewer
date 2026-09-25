@@ -1,0 +1,229 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.6.0: compact scene model list + animation play/pause/scrub UI.
+# Keep the live animation controls bound to the newest model; archived rigs remain frozen.
+
+const_old = '''    constexpr float kResetY = -0.266f;
+    constexpr float kRemoveModelY = -0.310f;
+    constexpr float kPhysicalSizeMeters[5] = {0.0f, 0.032f, 0.075f, 0.150f, 0.300f};'''
+const_new = '''    constexpr float kResetY = -0.266f;
+    constexpr float kAnimationY = -0.310f;
+    constexpr float kRemoveModelY = -0.350f;
+    constexpr float kModelListHeaderY = -0.390f;
+    constexpr float kModelListFirstY = -0.418f;
+    constexpr float kModelListStep = 0.025f;
+    constexpr float kPhysicalSizeMeters[5] = {0.0f, 0.032f, 0.075f, 0.150f, 0.300f};'''
+if const_old not in text:
+    raise SystemExit('v1.6.0 UI constants anchor missing')
+text = text.replace(const_old, const_new, 1)
+
+labels_old = '''    QuestMrAppendCenteredUiText(vertices, indices, -0.108f, -0.266f, -0.0060f, 0.00105f, "PLAY");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.108f, -0.266f, -0.0060f, 0.00105f, "BONES");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.310f, -0.0060f, 0.00118f, "REMOVE MODEL");'''
+labels_new = '''    QuestMrAppendCenteredUiText(vertices, indices, -0.108f, -0.266f, -0.0060f, 0.00072f, "PLAY/PAUSE");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.108f, -0.266f, -0.0060f, 0.00105f, "BONES");
+    QuestMrAppendCenteredUiText(vertices, indices, -0.126f, -0.310f, -0.0060f, 0.00080f, "ANIM");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.350f, -0.0060f, 0.00118f, "REMOVE MODEL");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.390f, -0.0060f, 0.00100f, "SCENE MODELS");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.418f, -0.0060f, 0.00086f, "MODEL 1");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.443f, -0.0060f, 0.00086f, "MODEL 2");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.468f, -0.0060f, 0.00086f, "MODEL 3");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.493f, -0.0060f, 0.00086f, "MODEL 4");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.518f, -0.0060f, 0.00086f, "MODEL 5");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.543f, -0.0060f, 0.00086f, "MODEL 6");'''
+if labels_old not in text:
+    raise SystemExit('v1.6.0 UI labels anchor missing')
+text = text.replace(labels_old, labels_new, 1)
+
+play_pad_old = '''        const Matrix4f playPad = panelPose *
+            Matrix4f::Translation(-0.108f, kResetY, -0.0028f) *
+            Matrix4f::Scaling(0.036f, 0.014f, 0.0015f);'''
+play_pad_new = '''        const Matrix4f playPad = panelPose *
+            Matrix4f::Translation(-0.108f, kResetY, -0.0028f) *
+            Matrix4f::Scaling(0.050f, 0.014f, 0.0015f);'''
+if play_pad_old not in text:
+    raise SystemExit('v1.6.0 play/pause pad anchor missing')
+text = text.replace(play_pad_old, play_pad_new, 1)
+
+# Timeline scrubbing and scene-list selection live in the same controller-ray UI pass.
+interaction_old = '''            const bool removeModelTouchNow =
+                std::abs(localX) < 0.120f &&
+                std::abs(localY - kRemoveModelY) < 0.016f;
+            if (removeModelTouchNow && uiTriggerPressed && hasSelectedModel) {
+                removeModelPendingIndex =
+                    selectedObject != nullptr ? selectedArchivedModel : -1;
+            }
+
+            const bool pinTouchNow ='''
+interaction_new = r'''            const bool removeModelTouchNow =
+                std::abs(localX) < 0.120f &&
+                std::abs(localY - kRemoveModelY) < 0.016f;
+            if (removeModelTouchNow && uiTriggerPressed && hasSelectedModel) {
+                removeModelPendingIndex =
+                    selectedObject != nullptr ? selectedArchivedModel : -1;
+            }
+
+            // v1.6.0 animation scrubber. Hold Trigger on the track and drag.
+            // Scrubbing pauses playback and immediately samples the selected time.
+            constexpr float kAnimTrackMinX = -0.075f;
+            constexpr float kAnimTrackMaxX = 0.138f;
+            const bool animationTrackTouchNow =
+                localX >= kAnimTrackMinX && localX <= kAnimTrackMaxX &&
+                std::abs(localY - kAnimationY) < 0.020f;
+            if (animationTrackTouchNow && uiTriggerDown && selectedObject == nullptr &&
+                gQuestMrImportedMesh.loaded && importedModelPlaced &&
+                gQuestMrAnimDuration > 0.0f && !gQuestMrAnimChannels.empty()) {
+                const float normalized = std::max(
+                    0.0f,
+                    std::min(1.0f, (localX - kAnimTrackMinX) /
+                        (kAnimTrackMaxX - kAnimTrackMinX)));
+                gQuestMrAnimPlaying = false;
+                gQuestMrAnimTime = normalized * gQuestMrAnimDuration;
+                QuestMrSampleAnimation(gQuestMrAnimTime);
+                QuestMrRebuildJointPalette();
+            }
+
+            // Compact scene list. Archived models occupy the first slots and the
+            // newest/live model is the last loaded slot.
+            const int archivedModelCount = static_cast<int>(gQuestMrSceneObjects.size());
+            const bool activeModelLoaded = gQuestMrImportedMesh.loaded && importedModelPlaced;
+            const int sceneModelCount = archivedModelCount + (activeModelLoaded ? 1 : 0);
+            for (int slot = 0; slot < kQuestMrMaxSceneModels; ++slot) {
+                const float rowY = kModelListFirstY - static_cast<float>(slot) * kModelListStep;
+                const bool modelRowTouchNow =
+                    std::abs(localX) < 0.128f && std::abs(localY - rowY) < 0.0115f;
+                if (modelRowTouchNow && uiTriggerPressed && slot < sceneModelCount) {
+                    selectedArchivedModel = slot < archivedModelCount ? slot : -1;
+                    modelMoveMode = false;
+                    break;
+                }
+            }
+
+            const bool pinTouchNow ='''
+if interaction_old not in text:
+    raise SystemExit('v1.6.0 interaction anchor missing')
+text = text.replace(interaction_old, interaction_new, 1)
+
+# Grow the physical tablet and ray hit range for the compact model list.
+sheet_old = '''        const Matrix4f sheet = panelPose *
+            Matrix4f::Translation(0.0f, -0.070f, 0.004f) *
+            Matrix4f::Scaling(0.160f, 0.270f, 0.0012f);'''
+sheet_new = '''        const Matrix4f sheet = panelPose *
+            Matrix4f::Translation(0.0f, -0.185f, 0.004f) *
+            Matrix4f::Scaling(0.160f, 0.385f, 0.0012f);'''
+if sheet_old not in text:
+    raise SystemExit('v1.6.0 tablet extent anchor missing')
+text = text.replace(sheet_old, sheet_new, 1)
+
+pointer_old = '''            candidateY > -0.345f && candidateY < 0.210f &&'''
+pointer_new = '''            candidateY > -0.570f && candidateY < 0.210f &&'''
+if pointer_old not in text:
+    raise SystemExit('v1.6.0 pointer lower-bound anchor missing')
+text = text.replace(pointer_old, pointer_new, 1)
+
+# Render timeline, progress indicator and the scene-model window.
+draw_old = '''        const Matrix4f removeModelPad = panelPose *
+            Matrix4f::Translation(0.0f, kRemoveModelY, -0.0028f) *
+            Matrix4f::Scaling(0.120f, 0.014f, 0.0015f);
+        drawUiRect(
+            removeModelPad,
+            hasSelectedModel ? 0.52f : 0.15f,
+            hasSelectedModel ? 0.18f : 0.16f,
+            hasSelectedModel ? 0.16f : 0.17f);
+
+        // Draw all labels in one call after the backgrounds/controls.'''
+draw_new = r'''        const Matrix4f removeModelPad = panelPose *
+            Matrix4f::Translation(0.0f, kRemoveModelY, -0.0028f) *
+            Matrix4f::Scaling(0.120f, 0.014f, 0.0015f);
+        drawUiRect(
+            removeModelPad,
+            hasSelectedModel ? 0.52f : 0.15f,
+            hasSelectedModel ? 0.18f : 0.16f,
+            hasSelectedModel ? 0.16f : 0.17f);
+
+        constexpr float kAnimTrackMinX = -0.075f;
+        constexpr float kAnimTrackMaxX = 0.138f;
+        const bool liveAnimationSelected =
+            selectedObject == nullptr && gQuestMrImportedMesh.loaded && importedModelPlaced &&
+            gQuestMrAnimDuration > 0.0f && !gQuestMrAnimChannels.empty();
+        const float animationProgress = liveAnimationSelected
+            ? std::max(0.0f, std::min(1.0f, gQuestMrAnimTime / gQuestMrAnimDuration))
+            : 0.0f;
+        const Matrix4f animationTrack = panelPose *
+            Matrix4f::Translation(
+                (kAnimTrackMinX + kAnimTrackMaxX) * 0.5f,
+                kAnimationY,
+                -0.0022f) *
+            Matrix4f::Scaling(
+                (kAnimTrackMaxX - kAnimTrackMinX) * 0.5f,
+                0.0040f,
+                0.0012f);
+        drawUiRect(
+            animationTrack,
+            liveAnimationSelected ? 0.12f : 0.08f,
+            liveAnimationSelected ? 0.16f : 0.09f,
+            liveAnimationSelected ? 0.20f : 0.10f);
+        if (animationProgress > 0.001f) {
+            const float filledWidth =
+                (kAnimTrackMaxX - kAnimTrackMinX) * animationProgress;
+            const Matrix4f animationFill = panelPose *
+                Matrix4f::Translation(
+                    kAnimTrackMinX + filledWidth * 0.5f,
+                    kAnimationY,
+                    -0.0030f) *
+                Matrix4f::Scaling(filledWidth * 0.5f, 0.0047f, 0.0012f);
+            drawUiRect(animationFill, 0.18f, 0.52f, 0.78f);
+        }
+        const float animationKnobX = kAnimTrackMinX +
+            (kAnimTrackMaxX - kAnimTrackMinX) * animationProgress;
+        const Matrix4f animationKnob = panelPose *
+            Matrix4f::Translation(animationKnobX, kAnimationY, -0.0040f) *
+            Matrix4f::Scaling(0.0060f, 0.0100f, 0.0015f);
+        drawUiRect(
+            animationKnob,
+            liveAnimationSelected ? 0.90f : 0.30f,
+            liveAnimationSelected ? 0.92f : 0.31f,
+            liveAnimationSelected ? 0.96f : 0.32f);
+
+        const Matrix4f modelListBackground = panelPose *
+            Matrix4f::Translation(0.0f, -0.478f, -0.0010f) *
+            Matrix4f::Scaling(0.138f, 0.088f, 0.0010f);
+        drawUiRect(modelListBackground, 0.065f, 0.072f, 0.090f);
+
+        const int archivedModelCount = static_cast<int>(gQuestMrSceneObjects.size());
+        const bool activeModelLoaded = gQuestMrImportedMesh.loaded && importedModelPlaced;
+        const int sceneModelCount = archivedModelCount + (activeModelLoaded ? 1 : 0);
+        for (int slot = 0; slot < kQuestMrMaxSceneModels; ++slot) {
+            const float rowY = kModelListFirstY - static_cast<float>(slot) * kModelListStep;
+            const bool loaded = slot < sceneModelCount;
+            const bool liveSlot = loaded && activeModelLoaded && slot == archivedModelCount;
+            const bool selectedSlot = loaded &&
+                ((slot < archivedModelCount && selectedArchivedModel == slot) ||
+                 (liveSlot && selectedArchivedModel == -1));
+            const Matrix4f modelRow = panelPose *
+                Matrix4f::Translation(0.0f, rowY, -0.0025f) *
+                Matrix4f::Scaling(0.128f, 0.0100f, 0.0012f);
+            drawUiRect(
+                modelRow,
+                selectedSlot ? 0.18f : (loaded ? 0.12f : 0.075f),
+                selectedSlot ? 0.46f : (loaded ? 0.18f : 0.080f),
+                selectedSlot ? 0.28f : (loaded ? 0.24f : 0.085f));
+            if (liveSlot) {
+                const Matrix4f liveMarker = panelPose *
+                    Matrix4f::Translation(0.118f, rowY, -0.0040f) *
+                    Matrix4f::Scaling(0.0042f, 0.0042f, 0.0014f);
+                drawUiRect(liveMarker, 0.22f, 0.58f, 0.92f);
+            }
+        }
+
+        // Draw all labels in one call after the backgrounds/controls.'''
+if draw_old not in text:
+    raise SystemExit('v1.6.0 dynamic UI draw anchor missing')
+text = text.replace(draw_old, draw_new, 1)
+
+cpp.write_text(text)
+print('QuestMR v1.6.0 PLAY/PAUSE label + animation scrubber: ON')
+print('QuestMR v1.6.0 scene model selector: ON (6 slots)')
