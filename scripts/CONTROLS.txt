@@ -1,46 +1,34 @@
-Quest3 MR Model Viewer v1.0.1 RC
+Quest3 MR Model Viewer v1.5.0 candidate
 
 UI
-- Either controller can point at the tablet.
-- Trigger click activates buttons.
-- Hold trigger and drag to adjust sliders.
-- Hover/proximity alone never activates a control.
+- Either controller points at the tablet.
+- Trigger clicks buttons; hold Trigger and drag sliders.
+- Grip/Squeeze near the tablet grabs it with no snap.
 
-TABLET GRAB
-- Bring either controller close to the tablet.
-- Hold Grip/Squeeze to grab it.
-- Position and full orientation follow without snapping.
-- Release Grip to leave the tablet in room space.
-- The other hand remains available for UI interaction.
+IMPORT / SCENE
+- IMPORT GLB loads another model without intentionally replacing older scene models.
+- Up to 6 models are allowed in the current v1.5 scene.
+- Combined estimated scene GPU budget: 768 MiB.
+- A cold start never auto-loads an old persisted GLB.
 
-IMPORT GLB
-- Trigger-click IMPORT GLB.
-- Android's document picker opens in front of the XR app.
-- Select a .glb file; the viewer returns automatically.
-- Status text: IDLE / WAIT / READY / ERROR.
-- Persisted GLBs are ignored on cold start and never auto-loaded.
-- Current guards: 192 MiB file, 3M vertices, 12M indices, 2M triangles,
-  4096px texture edge, 160 MiB texture residency, 256 MiB GPU estimate,
-  384 MiB CPU import estimate.
+MODELS
+- Grip/Squeeze near a model to grab it. The grabbed model becomes selected.
+- SIZE / SCALE / ROTATE / RESET act on the selected model.
+- SIZE presets: FIT / 32MM / 75MM / 150MM / 300MM.
+- The newest imported model is the live rig / animation target.
+- Older rigged models keep a frozen pose snapshot after another model is imported.
 
-MODEL
-- Bring either controller close to the model and hold Grip/Squeeze to grab it.
-- Full position + orientation follow the hand without snapping.
-- Release Grip to leave the model in room space.
-- PBR FULL enables authored Normal + Metallic/Roughness processing.
-- SIZE cycles: FIT -> 32MM -> 75MM -> 150MM -> 300MM -> FIT.
-- A millimetre preset sets the model's largest displayed dimension to that size.
-- SCALE adjusts fitted display scale and automatically returns SIZE to FIT.
-- ROTATE adjusts model yaw.
-- RESET ALL restores lighting and model transform defaults.
+RIG / ANIMATION
+- BONES toggles the rig overlay for the current live rig.
+- Joint handles support direct posing; supported hand/foot endpoints use two-bone IK.
+- PLAY toggles the first supported GLB animation clip on the newest model.
 
-LIGHTING
-- AMBIENT
-- KEY LIGHT
-- AZIMUTH
-- ELEVATION
-- WARMTH
-- EXPOSURE
+IMPORT GUARDS
+- 192 MiB GLB
+- 3M vertices / 12M indices / 2M triangles
+- 4096px texture edge
+- 500 MiB mipmapped texture estimate
+- 640 MiB per-model estimated GPU resources
+- 384 MiB CPU import estimate
 
 Environment Depth soft occlusion remains enabled.
-The colourful Meta sample/controller cubes remain removed.
