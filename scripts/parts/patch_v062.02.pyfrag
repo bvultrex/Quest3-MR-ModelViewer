@@ -1,0 +1,97 @@
+text=text.replace('''            if (modelMoveTouchNow && uiTriggerPressed && importedModelPlaced) {\n                physicalSizePreset = (physicalSizePreset + 1) % 5;\n            }''','''            if (modelMoveTouchNow && uiTriggerPressed && hasSelectedModel) {\n                selectedPhysicalSizePreset = (selectedPhysicalSizePreset + 1) % 5;\n            }''',1)
+# scale slider
+text=text.replace('''                modelScaleSlider = std::max(\n                    0.0f,\n                    std::min(1.0f, (localX - modelMinX) / (2.0f * kSliderHalfWidth)));\n                physicalSizePreset = 0;''','''                selectedScaleSlider = std::max(\n                    0.0f,\n                    std::min(1.0f, (localX - modelMinX) / (2.0f * kSliderHalfWidth)));\n                selectedPhysicalSizePreset = 0;''',1)
+# rotate slider
+text=text.replace('''                modelRotateSlider = std::max(\n                    0.0f,\n                    std::min(1.0f, (localX - modelMinX) / (2.0f * kSliderHalfWidth)));''','''                selectedRotateSlider = std::max(\n                    0.0f,\n                    std::min(1.0f, (localX - modelMinX) / (2.0f * kSliderHalfWidth)));''',1)
+# reset block model bits
+old='''                modelScaleSlider = 0.0769231f;\n                modelRotateSlider = 0.5f;\n                modelMoveMode = false;\n                physicalSizePreset = 0;\n                fullPbrMode = false;\n                if (importedModelPlaced) {\n                    importedModelRoot = importedModelDefaultRoot;\n                }'''
+new='''                selectedScaleSlider = 0.0769231f;\n                selectedRotateSlider = 0.5f;\n                modelMoveMode = false;\n                selectedPhysicalSizePreset = 0;\n                fullPbrMode = false;\n                if (selectedObject != nullptr) {\n                    selectedObject->root = selectedObject->defaultRoot;\n                } else if (importedModelPlaced) {\n                    importedModelRoot = importedModelDefaultRoot;\n                }'''
+assert old in text
+text=text.replace(old,new,1)
+
+# 10) import button archives active model before picker, preserving old scene model
+old='''            if (importTouchNow && uiTriggerPressed) {\n                gQuestMrImportState = QuestMrLaunchGlbPicker() ? 1 : 3;\n            }'''
+new='''            if (importTouchNow && uiTriggerPressed) {\n                bool canImport = true;\n                if (gQuestMrImportedMesh.loaded && importedModelPlaced) {\n                    canImport = QuestMrArchiveActiveModel(\n                        importedModelRoot, importedModelDefaultRoot,\n                        modelScaleSlider, modelRotateSlider, physicalSizePreset);\n                    if (canImport) {\n                        importedModelPlaced = false;\n                        selectedArchivedModel = static_cast<int>(gQuestMrSceneObjects.size()) - 1;\n                        modelGrabbed = false;\n                        modelGrabHand = -1;\n                        modelGrabArchivedIndex = -1;\n                    }\n                }\n                gQuestMrImportState = canImport && QuestMrLaunchGlbPicker() ? 1 : 3;\n            }'''
+assert old in text
+text=text.replace(old,new,1)
+
+# 11) new import becomes selected active
+old='''        modelGrabbed = false;\n        modelGrabHand = -1;\n        importedModelPlaced = true;\n    }\n'''
+new='''        modelGrabbed = false;\n        modelGrabHand = -1;\n        modelGrabArchivedIndex = -1;\n        selectedArchivedModel = -1;\n        importedModelPlaced = true;\n    }\n'''
+assert old in text
+text=text.replace(old,new,1)
+
+# 12) selected archived model is reflected by the tablet controls/readout.
+text=text.replace('''            physicalSizePreset > 0 ? 0.16f : 0.16f,
+            physicalSizePreset > 0 ? 0.50f : 0.34f,
+            physicalSizePreset > 0 ? 0.32f : 0.58f);''','''            selectedPhysicalSizePreset > 0 ? 0.16f : 0.16f,
+            selectedPhysicalSizePreset > 0 ? 0.50f : 0.34f,
+            selectedPhysicalSizePreset > 0 ? 0.32f : 0.58f);''',1)
+text=text.replace('''        drawModelSlider(kModelScaleY, modelScaleSlider);
+        drawModelSlider(kModelRotateY, modelRotateSlider);''','''        drawModelSlider(kModelScaleY, selectedScaleSlider);
+        drawModelSlider(kModelRotateY, selectedRotateSlider);''',1)
+text=text.replace('''            gQuestMrPhysicalSizeMeshes[std::max(0, std::min(4, physicalSizePreset))];''','''            gQuestMrPhysicalSizeMeshes[std::max(0, std::min(4, selectedPhysicalSizePreset))];''',1)
+text=text.replace('''                physicalSizePreset > 0 ? 0.44f : 0.72f,
+                physicalSizePreset > 0 ? 0.92f : 0.78f,
+                physicalSizePreset > 0 ? 0.64f : 0.86f));''','''                selectedPhysicalSizePreset > 0 ? 0.44f : 0.72f,
+                selectedPhysicalSizePreset > 0 ? 0.92f : 0.78f,
+                selectedPhysicalSizePreset > 0 ? 0.64f : 0.86f));''',1)
+
+# Archived rigs are intentionally frozen snapshots. PLAY/BONES remain controls for
+# the newest/live rig only, so an archived selection cannot accidentally pose it.
+text=text.replace('''            if (playTouchNow && uiTriggerPressed && gQuestMrAnimDuration > 0.0f) {''','''            if (playTouchNow && uiTriggerPressed && selectedObject == nullptr &&
+                gQuestMrAnimDuration > 0.0f) {''',1)
+
+# 13) archived model draw pass before active model. Snapshot rig palette is frozen.
+anchor='''    // Render only the imported model. No sample/controller cubes remain.\n    if (gQuestMrImportedMesh.loaded && importedModelPlaced) {\n'''
+insert=r'''    // QuestMR v1.5.0: previously imported models remain in the scene. Their
+    // last skin palette is frozen when a new GLB is imported; the newest model
+    // remains the live rig/animation target.
+    Matrix4f sceneLeftEyePose = frameIn.View[0].Inverted();
+    const Matrix4f sceneRightEyePose = frameIn.View[1].Inverted();
+    const float sceneCameraWorldPosition[3] = {
+        (sceneLeftEyePose.M[0][3] + sceneRightEyePose.M[0][3]) * 0.5f,
+        (sceneLeftEyePose.M[1][3] + sceneRightEyePose.M[1][3]) * 0.5f,
+        (sceneLeftEyePose.M[2][3] + sceneRightEyePose.M[2][3]) * 0.5f};
+
+    const auto drawSceneObject = [&](QuestMrSceneObject& object) {
+        if (!object.mesh.loaded || object.mesh.vao == 0) { return; }
+        const float multiplier = 0.25f + object.scaleSlider * 9.75f;
+        const float yaw = (object.rotateSlider * 2.0f - 1.0f) * 3.14159265f;
+        const float scale =
+            (object.physicalSizePreset > 0 && object.mesh.maxExtent > 0.000001f)
+                ? (kPhysicalSizeMeters[object.physicalSizePreset] / object.mesh.maxExtent)
+                : (object.mesh.fitScale * multiplier);
+        const Matrix4f model = object.root *
+            Matrix4f::RotationY(yaw) *
+            Matrix4f::Scaling(scale, scale, scale) *
+            Matrix4f::Translation(
+                -object.mesh.center[0], -object.mesh.center[1], -object.mesh.center[2]);
+
+        GL(glUniform1f(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::PBR_MODE), 1.0f));
+        GL(glUniform3fv(
+            scene.BoxDepthSpaceOcclusionProgram.GetUniformLocationOrDie(Uniform::Index::CAMERA_WORLD_POSITION),
+            1, sceneCameraWorldPosition));
+
+        if (gQuestMrJointUbo == 0) { GL(glGenBuffers(1, &gQuestMrJointUbo)); }
+        if (object.jointPalette.size() != 96 * 16) {
+            object.jointPalette.assign(96 * 16, 0.0f);
+            for (int joint = 0; joint < 96; ++joint) {
+                object.jointPalette[joint * 16 + 0] = 1.0f;
+                object.jointPalette[joint * 16 + 5] = 1.0f;
+                object.jointPalette[joint * 16 + 10] = 1.0f;
+                object.jointPalette[joint * 16 + 15] = 1.0f;
+            }
+        }
+        GL(glBindBuffer(GL_UNIFORM_BUFFER, gQuestMrJointUbo));
+        GL(glBufferData(
+            GL_UNIFORM_BUFFER,
+            static_cast<GLsizeiptr>(object.jointPalette.size() * sizeof(float)),
+            object.jointPalette.data(), GL_DYNAMIC_DRAW));
+        GL(glBindBufferBase(GL_UNIFORM_BUFFER, 3, gQuestMrJointUbo));
+        GLint skinProgram = 0;
+        GL(glGetIntegerv(GL_CURRENT_PROGRAM, &skinProgram));
+        if (skinProgram != 0) {
+            const GLuint jointBlock = glGetUniformBlockIndex(static_cast<GLuint>(skinProgram), "JointPalette");
+            if (jointBlock != GL_INVALID_INDEX) {
