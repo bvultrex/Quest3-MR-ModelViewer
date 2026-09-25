@@ -1,0 +1,107 @@
+new='''    static bool modelGrabbed = false;\n    static int modelGrabHand = -1;\n    static int modelGrabArchivedIndex = -1;\n    static int selectedArchivedModel = -1; // -1 = active imported model\n    static uint64_t interactionSceneGeneration = ~uint64_t(0);\n    static bool interactionResetPending = true;\n    static bool skeletonVisible = true;\n'''
+assert old in text
+text=text.replace(old,new,1)
+
+anchor='''    constexpr float kPanelSpawnDistance = -0.70f;\n    constexpr float kPanelSpawnY = -0.055f;\n\n    Matrix4f pointerTipMatrix;\n'''
+insert='''    constexpr float kPanelSpawnDistance = -0.70f;\n    constexpr float kPanelSpawnY = -0.055f;\n\n    if (interactionSceneGeneration != gQuestMrSceneGeneration) {\n        interactionSceneGeneration = gQuestMrSceneGeneration;\n        interactionResetPending = true;\n        panelInitialized = false;\n        panelPinned = true;\n        pinTouchPrev = false;\n        importTouchPrev = false;\n        resetTouchPrev = false;\n        materialTouchPrev = false;\n        modelMoveTouchPrev = false;\n        skeletonTouchPrev = false;\n        uiTriggerPrev[0] = uiTriggerPrev[1] = false;\n        gripPrev[0] = gripPrev[1] = false;\n        panelGrabbed = false;\n        panelGrabHand = -1;\n        modelGrabbed = false;\n        modelGrabHand = -1;\n        modelGrabArchivedIndex = -1;\n        selectedArchivedModel = -1;\n        physicalSizePreset = 0;\n        fullPbrMode = false;\n        modelMoveMode = false;\n        modelScaleSlider = 0.0769231f;\n        modelRotateSlider = 0.5f;\n        importedModelPlaced = false;\n        skeletonVisible = true;\n        for (int i = 0; i < 6; ++i) { lightSliders[i] = defaultLightSliders[i]; }\n    }\n\n    Matrix4f pointerTipMatrix;\n'''
+assert anchor in text
+text=text.replace(anchor,insert,1)
+
+# 7) grip edge neutralization first frame
+old='''    const bool gripDown[2] = {\n        handActive[0] && QuestMrGripDownForHand(0),\n        handActive[1] && QuestMrGripDownForHand(1)};\n    const bool gripPressed[2] = {\n        gripDown[0] && !gripPrev[0],\n        gripDown[1] && !gripPrev[1]};\n'''
+new='''    const bool gripDown[2] = {\n        handActive[0] && QuestMrGripDownForHand(0),\n        handActive[1] && QuestMrGripDownForHand(1)};\n    if (interactionResetPending) {\n        gripPrev[0] = gripDown[0];\n        gripPrev[1] = gripDown[1];\n        uiTriggerPrev[0] = handActive[0] && QuestMrTriggerDownForHand(0);\n        uiTriggerPrev[1] = handActive[1] && QuestMrTriggerDownForHand(1);\n        interactionResetPending = false;\n    }\n    const bool gripPressed[2] = {\n        gripDown[0] && !gripPrev[0],\n        gripDown[1] && !gripPrev[1]};\n'''
+assert old in text
+text=text.replace(old,new,1)
+
+# 8) replace active-only model grab with nearest active/archived grab
+start=text.index('    // QuestMR v0.3.15 direct model grab.')
+end=text.index('    // QuestMR v1.1.1: true controller ray -> tablet plane cursor.', start)
+new_block=r'''    // QuestMR v1.5.0 multi-model grab. Choose the nearest scene model under
+    // the grip tip. Grabbing a model also selects it for SIZE/SCALE/ROTATE/RESET.
+    if (!modelGrabbed) {
+        for (int hand = 0; hand < 2; ++hand) {
+            if (!handActive[hand] || !gripPressed[hand] ||
+                (panelGrabbed && hand == panelGrabHand)) {
+                continue;
+            }
+            const Matrix4f grabTip =
+                handPose[hand] * Matrix4f::Translation(0.0f, 0.0f, -0.080f);
+            float bestDistanceSq = 1.0e30f;
+            int bestArchived = -2; // -1 active, >=0 archived, -2 none
+
+            if (gQuestMrImportedMesh.loaded && importedModelPlaced) {
+                const float multiplier = 0.25f + modelScaleSlider * 9.75f;
+                const float extent = physicalSizePreset > 0
+                    ? kPhysicalSizeMeters[physicalSizePreset]
+                    : (0.34f * multiplier);
+                const float radius = std::max(0.10f, std::min(2.25f, 0.08f + extent * 0.55f));
+                const float dx = grabTip.M[0][3] - importedModelRoot.M[0][3];
+                const float dy = grabTip.M[1][3] - importedModelRoot.M[1][3];
+                const float dz = grabTip.M[2][3] - importedModelRoot.M[2][3];
+                const float d2 = dx * dx + dy * dy + dz * dz;
+                if (d2 <= radius * radius) {
+                    bestDistanceSq = d2;
+                    bestArchived = -1;
+                }
+            }
+            for (int index = 0; index < static_cast<int>(gQuestMrSceneObjects.size()); ++index) {
+                QuestMrSceneObject& object = gQuestMrSceneObjects[static_cast<size_t>(index)];
+                const float multiplier = 0.25f + object.scaleSlider * 9.75f;
+                const float extent = object.physicalSizePreset > 0
+                    ? kPhysicalSizeMeters[object.physicalSizePreset]
+                    : (0.34f * multiplier);
+                const float radius = std::max(0.10f, std::min(2.25f, 0.08f + extent * 0.55f));
+                const float dx = grabTip.M[0][3] - object.root.M[0][3];
+                const float dy = grabTip.M[1][3] - object.root.M[1][3];
+                const float dz = grabTip.M[2][3] - object.root.M[2][3];
+                const float d2 = dx * dx + dy * dy + dz * dz;
+                if (d2 <= radius * radius && d2 < bestDistanceSq) {
+                    bestDistanceSq = d2;
+                    bestArchived = index;
+                }
+            }
+            if (bestArchived != -2) {
+                modelGrabbed = true;
+                modelGrabHand = hand;
+                modelGrabArchivedIndex = bestArchived;
+                selectedArchivedModel = bestArchived;
+                Matrix4f& targetRoot = bestArchived >= 0
+                    ? gQuestMrSceneObjects[static_cast<size_t>(bestArchived)].root
+                    : importedModelRoot;
+                modelGrabOffset = handPose[hand].Inverted() * targetRoot;
+                modelMoveMode = false;
+                break;
+            }
+        }
+    }
+
+    if (modelGrabbed) {
+        const bool validArchived = modelGrabArchivedIndex >= 0 &&
+            modelGrabArchivedIndex < static_cast<int>(gQuestMrSceneObjects.size());
+        const bool validActive = modelGrabArchivedIndex == -1 &&
+            gQuestMrImportedMesh.loaded && importedModelPlaced;
+        if (modelGrabHand >= 0 && modelGrabHand < 2 &&
+            handActive[modelGrabHand] && gripDown[modelGrabHand] &&
+            !(panelGrabbed && modelGrabHand == panelGrabHand) &&
+            (validArchived || validActive)) {
+            Matrix4f& targetRoot = validArchived
+                ? gQuestMrSceneObjects[static_cast<size_t>(modelGrabArchivedIndex)].root
+                : importedModelRoot;
+            targetRoot = handPose[modelGrabHand] * modelGrabOffset;
+        } else {
+            modelGrabbed = false;
+            modelGrabHand = -1;
+            modelGrabArchivedIndex = -1;
+        }
+    }
+
+'''
+text=text[:start]+new_block+text[end:]
+
+# 9) UI controls operate selected model; create selected references before havePointer block
+anchor='''    const bool uiTriggerPressed =\n        pointerHand >= 0 && uiTriggerDown && !uiTriggerPrev[pointerHand];\n\n    if (havePointer) {\n'''
+insert='''    const bool uiTriggerPressed =\n        pointerHand >= 0 && uiTriggerDown && !uiTriggerPrev[pointerHand];\n\n    QuestMrSceneObject* selectedObject =\n        (selectedArchivedModel >= 0 &&\n         selectedArchivedModel < static_cast<int>(gQuestMrSceneObjects.size()))\n            ? &gQuestMrSceneObjects[static_cast<size_t>(selectedArchivedModel)]\n            : nullptr;\n    float& selectedScaleSlider = selectedObject ? selectedObject->scaleSlider : modelScaleSlider;\n    float& selectedRotateSlider = selectedObject ? selectedObject->rotateSlider : modelRotateSlider;\n    int& selectedPhysicalSizePreset = selectedObject\n        ? selectedObject->physicalSizePreset\n        : physicalSizePreset;\n    const bool hasSelectedModel = selectedObject != nullptr ||\n        (gQuestMrImportedMesh.loaded && importedModelPlaced);\n\n    if (havePointer) {\n'''
+assert anchor in text
+text=text.replace(anchor,insert,1)
+
+# size button
