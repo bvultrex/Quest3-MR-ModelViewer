@@ -1,0 +1,133 @@
+from pathlib import Path
+
+cpp = Path('meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Src/XrPassthroughOcclusionGl.cpp')
+text = cpp.read_text()
+
+# v1.5.1: remove the currently selected model from the multi-model scene.
+# Bottom row becomes REMOVE | RESET ALL | BONES without growing the tablet.
+
+if '#include <cstdio>' not in text:
+    anchor = '#include <algorithm>\n'
+    if anchor not in text:
+        raise SystemExit('v1.5.1 cstdio include anchor missing')
+    text = text.replace(anchor, anchor + '#include <cstdio>\n', 1)
+
+label_old = '''    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.266f, -0.0060f, 0.00135f, "RESET ALL");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.108f, -0.266f, -0.0060f, 0.00105f, "BONES");'''
+label_new = '''    QuestMrAppendCenteredUiText(vertices, indices, -0.108f, -0.266f, -0.0060f, 0.00098f, "REMOVE");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.0f, -0.266f, -0.0060f, 0.00135f, "RESET ALL");
+    QuestMrAppendCenteredUiText(vertices, indices, 0.108f, -0.266f, -0.0060f, 0.00105f, "BONES");'''
+if label_old not in text:
+    raise SystemExit('v1.5.1 bottom-row labels anchor missing')
+text = text.replace(label_old, label_new, 1)
+
+touch_anchor = '''            const bool bonesTouchNow =
+                localX > 0.078f && localX < 0.150f && std::abs(localY - kResetY) < 0.018f;'''
+remove_touch = r'''            const bool removeModelTouchNow =
+                localX > -0.150f && localX < -0.078f &&
+                std::abs(localY - kResetY) < 0.018f;
+            if (removeModelTouchNow && uiTriggerPressed && hasSelectedModel) {
+                if (selectedObject != nullptr && selectedArchivedModel >= 0 &&
+                    selectedArchivedModel < static_cast<int>(gQuestMrSceneObjects.size())) {
+                    const int removedIndex = selectedArchivedModel;
+                    QuestMrDestroySceneObject(
+                        gQuestMrSceneObjects[static_cast<size_t>(removedIndex)]);
+                    gQuestMrSceneObjects.erase(
+                        gQuestMrSceneObjects.begin() + removedIndex);
+
+                    if (modelGrabbed) {
+                        if (modelGrabArchivedIndex == removedIndex) {
+                            modelGrabbed = false;
+                            modelGrabHand = -1;
+                            modelGrabArchivedIndex = -1;
+                        } else if (modelGrabArchivedIndex > removedIndex) {
+                            --modelGrabArchivedIndex;
+                        }
+                    }
+
+                    if (gQuestMrImportedMesh.loaded && importedModelPlaced) {
+                        selectedArchivedModel = -1;
+                    } else if (!gQuestMrSceneObjects.empty()) {
+                        selectedArchivedModel = std::min(
+                            removedIndex,
+                            static_cast<int>(gQuestMrSceneObjects.size()) - 1);
+                    } else {
+                        selectedArchivedModel = -1;
+                    }
+                } else if (gQuestMrImportedMesh.loaded && importedModelPlaced) {
+                    const std::string stagedImportPath = QuestMrImportPath();
+                    QuestMrDestroyImportedMesh();
+                    if (!stagedImportPath.empty()) {
+                        std::remove(stagedImportPath.c_str());
+                    }
+                    importedModelPlaced = false;
+                    modelGrabbed = false;
+                    modelGrabHand = -1;
+                    modelGrabArchivedIndex = -1;
+                    modelMoveMode = false;
+                    modelScaleSlider = 0.0769231f;
+                    modelRotateSlider = 0.5f;
+                    physicalSizePreset = 0;
+                    gQuestMrJointPalette.clear();
+                    gQuestMrJoints.clear();
+                    gQuestMrAnimChannels.clear();
+                    gQuestMrAnimDuration = 0.0f;
+                    gQuestMrAnimTime = 0.0f;
+                    gQuestMrAnimPlaying = false;
+                    gQuestMrPoseJoint = -1;
+                    gQuestMrPoseActive = false;
+                    gQuestMrPoseTwoBone = false;
+                    gQuestMrLastImportRigged = false;
+                    if (!gQuestMrSceneObjects.empty()) {
+                        selectedArchivedModel =
+                            static_cast<int>(gQuestMrSceneObjects.size()) - 1;
+                    } else {
+                        selectedArchivedModel = -1;
+                    }
+                }
+
+                const bool anyModels =
+                    (gQuestMrImportedMesh.loaded && importedModelPlaced) ||
+                    !gQuestMrSceneObjects.empty();
+                if (!anyModels) {
+                    gQuestMrImportState = 0;
+                } else if (selectedArchivedModel >= 0 &&
+                           selectedArchivedModel <
+                               static_cast<int>(gQuestMrSceneObjects.size()) &&
+                           gQuestMrSceneObjects[
+                               static_cast<size_t>(selectedArchivedModel)].rigged) {
+                    gQuestMrImportState = 4;
+                } else {
+                    gQuestMrImportState = 2;
+                }
+                ALOGV(
+                    "QuestMR v1.5.1 REMOVE selected model; archived=%zu active=%d",
+                    gQuestMrSceneObjects.size(),
+                    (gQuestMrImportedMesh.loaded && importedModelPlaced) ? 1 : 0);
+            }
+
+''' + touch_anchor
+if touch_anchor not in text:
+    raise SystemExit('v1.5.1 REMOVE touch anchor missing')
+text = text.replace(touch_anchor, remove_touch, 1)
+
+pad_anchor = '''        drawUiRect(resetPad, 0.22f, 0.24f, 0.28f);
+        const Matrix4f bonesPad = panelPose *'''
+pad_new = '''        drawUiRect(resetPad, 0.22f, 0.24f, 0.28f);
+        const Matrix4f removeModelPad = panelPose *
+            Matrix4f::Translation(-0.108f, kResetY, -0.0028f) *
+            Matrix4f::Scaling(0.036f, 0.014f, 0.0015f);
+        drawUiRect(
+            removeModelPad,
+            hasSelectedModel ? 0.46f : 0.14f,
+            hasSelectedModel ? 0.18f : 0.15f,
+            hasSelectedModel ? 0.16f : 0.16f);
+        const Matrix4f bonesPad = panelPose *'''
+if pad_anchor not in text:
+    raise SystemExit('v1.5.1 REMOVE pad anchor missing')
+text = text.replace(pad_anchor, pad_new, 1)
+
+cpp.write_text(text)
+print('QuestMR v1.5.1 selected-model REMOVE button: ON')
+print('QuestMR v1.5.1 REMOVE releases selected GPU resources: ON')
+print('QuestMR v1.5.1 REMOVE preserves all other scene models: ON')
