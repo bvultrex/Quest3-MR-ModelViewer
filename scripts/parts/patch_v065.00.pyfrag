@@ -43,6 +43,7 @@ public class QuestMrPickerActivity extends Activity {
     private static final int QUESTMR_PICK_MODEL_FOLDER = 4243;
     private static final String PREFS = "questmr_glb_picker";
     private static final String PREF_TREE_URI = "tree_uri";
+    private static final long MAX_IMPORT_BYTES = 192L * 1024L * 1024L;
 
     private Uri treeUri;
     private Uri currentDir;
@@ -92,6 +93,26 @@ public class QuestMrPickerActivity extends Activity {
                 chooseModelFolder();
             }
         }
+    }
+
+    private void returnToViewer() {
+        try {
+            Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
+            if (launch != null) {
+                launch.addFlags(
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                startActivity(launch);
+            }
+        } catch (Exception ignored) {
+        }
+        finish();
+    }
+
+    @Override
+    public void onBackPressed() {
+        returnToViewer();
     }
 
     private void clearStaleImport() {
@@ -386,7 +407,14 @@ public class QuestMrPickerActivity extends Activity {
 
             byte[] buffer = new byte[65536];
             int count;
+            long totalBytes = 0L;
             while ((count = input.read(buffer)) > 0) {
+                totalBytes += count;
+                if (totalBytes > MAX_IMPORT_BYTES) {
+                    temp.delete();
+                    statusLabel.setText("GLB exceeds 192 MiB safety limit.");
+                    return;
+                }
                 output.write(buffer, 0, count);
             }
             output.flush();
@@ -407,7 +435,7 @@ public class QuestMrPickerActivity extends Activity {
                 temp.delete();
             }
 
-            finish();
+            returnToViewer();
         } catch (Exception ignored) {
             temp.delete();
             statusLabel.setText("GLB import failed.");
@@ -423,7 +451,7 @@ public class QuestMrPickerActivity extends Activity {
 
         if (resultCode != RESULT_OK || data == null || data.getData() == null) {
             if (treeUri == null) {
-                finish();
+                returnToViewer();
             }
             return;
         }
@@ -455,3 +483,5 @@ public class QuestMrPickerActivity extends Activity {
 print('QUESTMR_V161_CUSTOM_GLB_BROWSER: ON')
 print('v1.6.1 picker renders only directories and .glb files')
 print('v1.6.1 model-folder SAF grant is persisted when provider supports it')
+print('v1.6.1 return-to-XR path preserved')
+print('v1.6.1 picker copy guard: 192 MiB')
