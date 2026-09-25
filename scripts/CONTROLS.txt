@@ -1,4 +1,4 @@
-Quest3 MR Model Viewer v1.6.0 candidate
+Quest3 MR Model Viewer v1.6.1 candidate
 
 UI
 - Either controller points at the tablet.
@@ -6,8 +6,11 @@ UI
 - Grip/Squeeze near the tablet grabs it with no snap.
 
 IMPORT / SCENE
-- IMPORT GLB opens a GLB-only document request.
-- The selected document is validated as .glb / model/gltf-binary before import.
+- IMPORT GLB opens the custom GLB browser.
+- On first use, choose a model folder with Android's folder selector.
+- That folder permission is remembered when the Android provider supports persistent grants.
+- The custom browser shows only subfolders and .glb files; unrelated formats are hidden completely.
+- Use Change folder to pick a different model folder later.
 - IMPORT GLB loads another model without intentionally replacing older scene models.
 - Up to 6 models are allowed.
 - Combined estimated scene GPU budget: 768 MiB.
