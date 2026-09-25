@@ -1,7 +1,7 @@
 bl_info = {
     "name": "QuestMR Rig Animator",
     "author": "QuestMR Project",
-    "version": (0, 1, 0),
+    "version": (0, 1, 1),
     "blender": (4, 4, 0),
     "location": "View3D > Sidebar > QuestMR",
     "description": "Focused GLB skeleton posing, keyframing and animation export",
@@ -12,7 +12,7 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, IntProperty, StringProperty
 from bpy.types import Operator, Panel
 
-ADDON_VERSION = "0.1.0"
+ADDON_VERSION = "0.1.1"
 ACTION_PREFIX = "QMRA_"
 _pose_clipboard = {}
 
@@ -45,11 +45,27 @@ def select_armature(context, armature):
     armature.data.show_names = context.scene.qmra_show_bone_names
 
 
+def normalize_armature_display(armature):
+    if armature is None:
+        return
+    armature.show_in_front = True
+    try:
+        armature.data.display_type = "STICK"
+    except Exception:
+        pass
+    for pose_bone in armature.pose.bones:
+        try:
+            pose_bone.custom_shape = None
+        except Exception:
+            pass
+
+
 def ensure_pose_mode(context):
     armature = active_armature(context)
     if armature is None:
         return None
     select_armature(context, armature)
+    normalize_armature_display(armature)
     try:
         bpy.ops.object.mode_set(mode="POSE")
     except RuntimeError:
@@ -126,6 +142,8 @@ class QMRA_OT_import_glb(Operator):
             bpy.ops.import_scene.gltf(
                 filepath=self.filepath,
                 bone_heuristic="BLENDER",
+                disable_bone_shape=True,
+                guess_original_bind_pose=False,
                 import_select_created_objects=True,
             )
         except Exception as exc:
@@ -141,6 +159,8 @@ class QMRA_OT_import_glb(Operator):
             return {"CANCELLED"}
 
         armature = armatures[0]
+        for imported_armature in armatures:
+            normalize_armature_display(imported_armature)
         select_armature(context, armature)
         context.scene.qmra_source_glb = self.filepath
         context.scene.render.fps = context.scene.qmra_fps
