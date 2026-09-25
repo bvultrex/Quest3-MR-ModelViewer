@@ -95,3 +95,21 @@ v1.6.0 remains a candidate until CI and Quest hardware acceptance pass.
 ### v1.6.0 CI verification
 
 The v1.6.0 code path passed patch application, Android/C++ debug APK compilation, APK verification and artifact upload in workflow run 36144353800. That run was created from the final code changes before the APP_VERSION metadata bump, so a clean head build was triggered afterward to produce the correctly named v1.6.0 artifact.
+
+
+## 2026-09-25 — v1.6.1 picker correction
+
+Quest hardware showed that Meta's document provider does not reliably classify .glb files as `model/gltf-binary`. The v1.6.0 MIME-only request therefore disabled valid GLB files while still rendering unrelated formats as grey rows.
+
+v1.6.1 stops relying on provider MIME classification for the visible file list.
+
+- Android `ACTION_OPEN_DOCUMENT_TREE` is used only to grant access to a user-selected model folder.
+- The app persists that tree URI when the provider supports persistable grants.
+- A custom Java browser enumerates the granted tree with `DocumentsContract`.
+- Directories remain visible for navigation.
+- Files are included only when their display name ends in `.glb` (case-insensitive).
+- Non-GLB files are not rendered at all.
+- Selecting a GLB copies it into the existing app-private fresh-import transaction and returns to XR.
+- Existing stale-import clearing and safe cold-start behavior are preserved.
+
+This is the first picker version intended to guarantee a visually GLB-only list independently of Meta DocumentsUI MIME behavior.
