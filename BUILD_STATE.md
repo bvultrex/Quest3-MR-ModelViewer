@@ -1,80 +1,48 @@
 # Build architecture state
 
-Current app baseline: **v1.0.1 accepted final release**
+Current candidate: **v1.5.0**. Latest green checkpoint before this candidate: **v1.4.1**.
 
-The GitHub Actions workflow is intentionally thin. Build logic lives in `scripts/`:
+## Patch stack
 
-- `patch_depth.py` - filtered Environment Depth + MSAA quality pass
-- `patch_lighting.py` - lighting uniforms and controls
-- `patch_android_picker.py` - Android document picker / native app bridge
-- `parts/patch_glb_loader.*.pyfrag` - cgltf GLB loader and viewer foundations
-- `parts/patch_glb_safety.*.pyfrag` - transactional import and safety validation
-- `parts/patch_tablet_ui.*.pyfrag` - labelled room-spawned tablet UI
-- `parts/patch_pbr.*.pyfrag` - normals, UVs and PBR texture path
-- `parts/patch_v037.*` through `patch_v045.*` - controls, safe import path, dual-controller input and direct tablet/model grab
-- `parts/patch_v046.*.pyfrag` - first v1 import-state text plus raw metre-scale experiment
-- `parts/patch_v047.*.pyfrag` - v1.0.1 physical SIZE presets and OpenGL scene-lifecycle hardening
-- `apply_patches.sh` - reconstructs/applies patches and verifies expected markers
-- `brand_android.sh` - package/version/label branding
-- `verify_apk.sh` - artifact collection and APK verification
+The pipeline starts from Meta OpenXR SDK v85 and applies the modular patch series through `patch_v062`.
 
-Pinned dependencies: Meta OpenXR SDK v85, cgltf v1.15, stb `2c980bb59875b0d32144a71867fbdebb2f77cd20`.
+Important recent phases:
 
-## Interaction model
+- v1.0.x: safe import, physical SIZE, GL lifecycle hardening and app polish
+- v1.0.3: 500 MiB texture guard and 640 MiB per-model estimated GPU guard
+- v1.1.x: multi-material/PBR expansion, controller ray and texture reuse
+- v1.2.x: skin palette and GPU skinning
+- v1.3.x: live joints, BONES UI and joint rings/manipulation
+- v1.4.0: two-bone IK + GLB animation player
+- v1.4.1: preserve external/root scale during animation sampling
+- v1.5.0 / patch_v062: restart interaction epoch + multi-model scene
 
-Either controller can point and trigger-click the UI. Trigger-hold operates sliders. Either controller can Grip/Squeeze the tablet or imported model with preserved pickup offset and full 6DoF pose.
+Pinned dependencies remain Meta OpenXR SDK v85, cgltf v1.15 and stb `2c980bb59875b0d32144a71867fbdebb2f77cd20`.
 
-## Import behavior
+## Restart state rule
 
-- Persisted `questmr_import.glb` is ignored on cold start.
-- Picker transactions clear stale app-private source before selection.
-- Successful picker selection creates the only source eligible for a fresh import.
-- Import state text: IDLE / WAIT / READY / ERROR.
+OpenGL lifecycle cleanup is not sufficient for interaction state. The tablet/model grab code keeps render-local static CPU variables. v1.5 introduces `gQuestMrSceneGeneration`, incremented at Scene::Create. RenderFrame detects a generation change and resets all grab owners, previous trigger/grip states, selection and placement/UI latches. The first new frame baselines currently held inputs before computing press edges.
 
-## Scaling behavior
+Never carry either GL object names **or CPU grab/press ownership** across a scene lifecycle boundary.
 
-Default FIT scale targets about 34 cm maximum extent before the manual SCALE multiplier.
+## Multi-model architecture
 
-v1.0.1 does not assume source GLB coordinates represent intended metres. `SIZE` sets the model's largest displayed dimension explicitly:
+The newest imported GLB remains in `gQuestMrImportedMesh` and is the live rig/animation target. Before another picker transaction, the active model is moved into `gQuestMrSceneObjects`.
 
-- FIT
-- 32 mm
-- 75 mm
-- 150 mm
-- 300 mm
+Each archived scene object owns:
 
-Manual SCALE returns SIZE to FIT.
+- mesh GPU handles/materials/draw ranges
+- room-space root/default transform
+- SIZE/SCALE/ROTATE state
+- frozen joint-palette snapshot
+- estimated GPU cost
 
-## GL lifecycle rule
+Archived models remain rendered and directly grabbable. Grabbing selects them for transform controls. The newest model alone retains mutable rig/IK/animation state, preventing multiple heavyweight animation systems from running concurrently on Quest.
 
-v1.0.0 hardware testing exposed stale static OpenGL object names across XR/scene restart. Static UI mesh wrappers could retain `built=true` after their EGL-context resources were invalid. A later GL allocation could reuse the same numeric name, plausibly explaining both missing labels and the observed white artifact.
+Scene limits: 6 models, 768 MiB aggregate estimated GPU cost.
 
-v1.0.1 therefore:
+## Safety
 
-- invalidates all static UI mesh wrappers on `Scene::Create`,
-- clears imported-model GL handles on `Scene::Create` while preserving only the safe import stamp,
-- explicitly releases UI text GL resources on `Scene::Destroy`,
-- explicitly destroys imported-model GL resources on `Scene::Destroy`.
+Per model: 192 MiB file, 3M vertices, 12M indices, 2M triangles, 4096px edge, 500 MiB mipmapped textures, 640 MiB estimated GPU, 384 MiB CPU import estimate.
 
-Never preserve raw VAO/VBO/IBO/texture object names across a scene/EGL lifecycle boundary.
-
-## Hardware acceptance
-
-Quest 3 final acceptance confirms:
-
-- UI text remains present after app restart,
-- the prior white import artifact is no longer observed with known-good GLBs,
-- SIZE presets behave plausibly,
-- SCALE returns physical SIZE to FIT,
-- tablet/model grabbing remains stable,
-- safe cold start remains intact.
-
-## Hardware findings / safety envelope
-
-Quest 3 confirms Environment Depth, GLB picker, PBR, dual-controller UI, direct tablet/model grip and smooth ~100k-class models. A 3.03M-triangle model causes severe sustained XR/system lag.
-
-Current guards: 192 MiB GLB, 3M vertices, 12M indices, **2M triangles**, 4096px texture edge, 160 MiB mipmapped textures, 256 MiB estimated GPU resources, 384 MiB estimated CPU import working set.
-
-Do not raise the 2M ceiling without LOD, simplification or another renderer-side strategy.
-
-**Frozen v1.0 baseline: v1.0.1 accepted final.** Any new feature work should branch from this state as v1.1+ rather than modifying the accepted v1.0 baseline conceptually.
+The 2M triangle limit remains based on hardware evidence. A ~3.03M-triangle reference caused severe sustained XR/system lag.
