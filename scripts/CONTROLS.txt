@@ -1,4 +1,4 @@
-Quest3 MR Model Viewer v1.5.0 candidate
+Quest3 MR Model Viewer v1.5.1 candidate
 
 UI
 - Either controller points at the tablet.
@@ -14,6 +14,8 @@ IMPORT / SCENE
 MODELS
 - Grip/Squeeze near a model to grab it. The grabbed model becomes selected.
 - SIZE / SCALE / ROTATE / RESET act on the selected model.
+- REMOVE MODEL deletes only the selected model and frees its GPU resources.
+- Other loaded scene models remain in place after REMOVE MODEL.
 - SIZE presets: FIT / 32MM / 75MM / 150MM / 300MM.
 - The newest imported model is the live rig / animation target.
 - Older rigged models keep a frozen pose snapshot after another model is imported.
