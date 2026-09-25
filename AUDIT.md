@@ -90,3 +90,8 @@ Requested UI/import changes:
 - Returned document receives a second .glb / MIME validation before bytes are copied into the app-private import transaction.
 
 v1.6.0 remains a candidate until CI and Quest hardware acceptance pass.
+
+
+### v1.6.0 CI verification
+
+The v1.6.0 code path passed patch application, Android/C++ debug APK compilation, APK verification and artifact upload in workflow run 36144353800. That run was created from the final code changes before the APP_VERSION metadata bump, so a clean head build was triggered afterward to produce the correctly named v1.6.0 artifact.
