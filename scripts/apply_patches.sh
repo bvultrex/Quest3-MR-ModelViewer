@@ -51,6 +51,7 @@ run_fragmented_patch patch_v059
 run_fragmented_patch patch_v060
 run_fragmented_patch patch_v061
 run_fragmented_patch patch_v062
+run_fragmented_patch patch_v063
 
 echo '--- Modular patch verification ---'
 SRC="$SRC_DIR/XrPassthroughOcclusionGl.cpp"
@@ -108,6 +109,9 @@ grep -n 'kQuestMrMaxSceneModels = 6' "$SRC"
 grep -n 'kQuestMrSceneGpuBudgetBytes = 768ULL' "$SRC"
 grep -n 'selectedArchivedModel' "$SRC"
 grep -n 'drawSceneObject' "$SRC"
+grep -n 'REMOVE MODEL' "$SRC"
+grep -n 'removeModelPendingIndex' "$SRC"
+grep -n 'removed selected model target=' "$SRC"
 grep -n 'gQuestMrPoseActive' "$SRC"
 grep -n 'glBindBufferBase(GL_UNIFORM_BUFFER, 3, gQuestMrJointUbo)' "$SRC"
 grep -n 'VERTEX_ATTRIBUTE_LOCATION_JOINTS' "$SRC"
