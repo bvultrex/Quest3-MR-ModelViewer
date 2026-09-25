@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  APP_VERSION: '0.1.0'
+  APP_VERSION: '0.1.1'
 
 jobs:
   package:
@@ -38,7 +38,7 @@ jobs:
       - name: Validate Blender extension manifest
         shell: pwsh
         run: |
-          python -c "import tomllib, pathlib; p=pathlib.Path('tools/QuestMR-Rig-Animator/questmr_rig_animator/blender_manifest.toml'); d=tomllib.loads(p.read_text()); assert d['id']=='questmr_rig_animator'; assert d['version']=='0.1.0'; print(d)"
+          python -c "import tomllib, pathlib; p=pathlib.Path('tools/QuestMR-Rig-Animator/questmr_rig_animator/blender_manifest.toml'); d=tomllib.loads(p.read_text()); assert d['id']=='questmr_rig_animator'; assert d['version']=='0.1.1'; print(d)"
 
       - name: Package Blender extension
         shell: pwsh
