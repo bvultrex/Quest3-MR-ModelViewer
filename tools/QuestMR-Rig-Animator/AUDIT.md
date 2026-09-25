@@ -95,3 +95,26 @@ Export:
 - the GLB contains model, skin and baked pose animation, not the helper control objects
 
 Future Pose-from-Reference code should target semantic IK roles rather than deform-bone transforms.
+
+
+## 2026-09-25 — v0.2.1 pose-safe IK and reference media
+
+User feedback:
+- Create / Rebuild IK changed the existing pose.
+- IK controls were difficult to identify/select.
+- no visible UI existed yet for reference images or video clips.
+
+Changes:
+- preserve evaluated armature pose across IK rebuild
+- all newly generated QuestMR constraints start at 0% influence
+- Create / Rebuild is now pose-neutral
+- new Activate IK From Current Pose operator
+- limb pole-angle calibration searches for the angle that best reproduces the current elbow/knee bend before enabling IK
+- direct Quick Select buttons for semantic IK roles
+- reference-media loader for still images and movies
+- reference media uses a dedicated non-rendering QuestMR_Reference collection
+- reference opacity and size controls
+- movie/image references use Blender Image Empty playback and follow scene frames
+
+Important:
+Automatic body landmark detection is not part of v0.2.1 yet. This release establishes the reference media layer and stable semantic IK targets needed for the next Pose-from-Reference milestone.
