@@ -51,13 +51,16 @@ picker.write_text(r'''package com.bvultrex.quest3mrmodelviewer;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Locale;
 
 public class QuestMrPickerActivity extends Activity {
     private static final int QUESTMR_OPEN_GLB = 4242;
@@ -67,16 +70,46 @@ public class QuestMrPickerActivity extends Activity {
         super.onCreate(savedInstanceState);
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
+        // QUESTMR_V160_GLB_ONLY: ask the Storage Access Framework for GLB only.
+        // Providers that honor the registered glTF binary MIME type no longer
+        // show unrelated formats as disabled rows.
+        intent.setType("model/gltf-binary");
         intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
-            "model/gltf-binary",
-            "model/gltf+json",
-            "application/octet-stream"
+            "model/gltf-binary"
         });
         try {
             startActivityForResult(intent, QUESTMR_OPEN_GLB);
         } catch (Exception ignored) {
             finish();
+        }
+    }
+
+    private boolean isGlbSelection(Uri uri) {
+        String displayName = null;
+        try (Cursor cursor = getContentResolver().query(
+                uri,
+                new String[] { OpenableColumns.DISPLAY_NAME },
+                null,
+                null,
+                null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) {
+                    displayName = cursor.getString(index);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        if (displayName != null) {
+            return displayName.toLowerCase(Locale.ROOT).endsWith(".glb");
+        }
+
+        try {
+            String mime = getContentResolver().getType(uri);
+            return "model/gltf-binary".equalsIgnoreCase(mime);
+        } catch (Exception ignored) {
+            return false;
         }
     }
 
@@ -90,6 +123,10 @@ public class QuestMrPickerActivity extends Activity {
 
         Uri uri = data.getData();
         if (uri == null) {
+            finish();
+            return;
+        }
+        if (!isGlbSelection(uri)) {
             finish();
             return;
         }
