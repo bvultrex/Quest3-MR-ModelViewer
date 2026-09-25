@@ -1,82 +1,69 @@
 # AUDIT
 
-## 2026-09-16 — Bootstrap / v0.1
+## 2026-09-16 to 2026-09-18 — Foundation and accepted v1.0 line
 
-- Chose native OpenXR reference sample instead of requiring Unity locally.
-- Pinned Meta OpenXR SDK v85.
-- ARM64 standalone Quest target with GitHub Actions build/debug signing.
-- Preserve Meta Java namespace; brand via applicationId/label/version.
+- Native Android/C++ OpenXR chosen on Meta OpenXR SDK v85.
+- Quest 3 hardware confirmed passthrough and `XR_META_environment_depth`; filtered v0.1.2 occlusion became the visual baseline.
+- Runtime GLB import, PBR, lighting, labelled tablet, dual-controller input and direct tablet/model grab were built and hardware-tested.
+- Safe-boot rule established after a persisted heavy GLB could starve XR at startup: a cached source is ignored until a fresh picker transaction.
+- v1.0.0 was rejected after raw metre scaling and GL lifecycle regressions.
+- v1.0.1 replaced raw scale with explicit SIZE presets and hardened UI/model GL lifecycle. Final hardware acceptance passed.
 
-## 2026-09-17 — Hardware bring-up accepted
+## 2026-09-18 to 2026-09-23 — Viewer expansion
 
-Quest 3 confirmed passthrough, Environment Depth and correct real-world occlusion. The filtered v0.1.2 occlusion pass became the visual baseline and must be preserved unless intentionally retuned.
+The repository advanced beyond the stale v1.0 documentation.
 
-## 2026-09-17 — Viewer / GLB / PBR phase
+- App icon / Android label polish.
+- Texture guard raised to 500 MiB, with 640 MiB per-model estimated GPU guard.
+- Multi-material GLB rendering and texture reuse.
+- True controller-ray tablet interaction and further Environment Depth preservation work.
+- GPU skinning / joint palette.
+- Live rig visualization with BONES and joint rings.
+- Direct joint posing.
+- Two-bone IK for supported limb endpoints.
+- GLB animation playback.
+- v1.4.1 preserved external/root scale while animation clips authored in centimeters play.
 
-Implemented runtime GLB loading, Android picker, transactional replacement, model bounds/fit, BaseColor/Normal/Metallic-Roughness PBR, sRGB/UV fixes, lighting controls, labelled tablet and trigger-gated controls.
+Latest green pre-v1.5 checkpoint: **v1.4.1**, commit `6ac8b0c94850e65afa88a290a606bd5242946446`.
 
-Hardware testing exposed and fixed texture mapping, hover activation, picker foreground/return and stale cached GLB startup behavior.
+## 2026-09-25 — Repository re-audit
 
-## 2026-09-17 — Safe boot regression
+User reported that after restarting the app the tablet could no longer be grabbed and requested multiple models in one scene.
 
-A persisted GLB could be treated as fresh input at process startup, causing a heavy import to progressively stall tracking, controllers and system UI.
+Audit found that GL resources were lifecycle-reset, but the interaction path still used render-local static CPU state such as tablet/model grab ownership and previous Grip/Trigger latches. Those values could survive Scene/EGL recreation and leave the tablet in a stale held/edge state.
 
-Permanent rule: cached GLB is ignored on cold start; only a fresh picker transaction makes a source eligible for import.
+The existing PROJECT_STATE / BUILD_STATE / README / HANDOFF files were also stale at v1.0.1 despite code reaching v1.4.1. They were rewritten to reflect the actual repository.
 
-## 2026-09-17 — Import budgets from hardware evidence
+## 2026-09-25 — v1.5.0 candidate
 
-Older low-detail references require about 128 MiB mipmapped texture residency, so texture budget was raised to 160 MiB. A 3.03M-triangle / three-2K-map model passes memory preflight but reproducibly causes severe sustained XR/system lag.
+### Restart-state correction
 
-Final safety envelope: 192 MiB file, 3M vertices, 12M indices, 2M triangles, 4096px texture edge, 160 MiB textures, 256 MiB GPU estimate, 384 MiB CPU import estimate.
+Added a scene-generation epoch:
 
-## 2026-09-17 — Interaction finalization
+- `Scene::Create` increments `gQuestMrSceneGeneration`.
+- RenderFrame detects a generation change.
+- tablet/model grab ownership is cleared,
+- previous Grip/Trigger states and UI press latches are reset,
+- selection and placement state are reset,
+- the first frame baselines inputs already held during restart so no phantom press/grab is synthesized.
 
-Hardware confirmed full-orientation tablet placement, independent left/right trigger input, per-hand squeeze/grip, direct no-snap tablet grip and direct no-snap model grip. Old MODEL MOVE toggle retired.
+Policy: scene recreation must reset both GPU resources and CPU interaction ownership.
 
-## 2026-09-17 — v1.0.0 candidate rejected on hardware
+### Multi-model scene
 
-The first v1.0.0 candidate added raw `REAL SCALE` (`1 glTF unit = 1 metre`) and import status text. Quest testing immediately found:
+Added `QuestMrSceneObject` storage.
 
-1. raw metre scale was far too large for the user's imported Meshy/miniature assets because source coordinates did not encode intended print/display units,
-2. UI labels disappeared after restarting the app,
-3. a strange white rendering artifact appeared while loading a file.
+- IMPORT GLB archives the current active model before opening the next picker transaction.
+- Older models remain visible and directly grabbable.
+- Grabbing an older model selects it.
+- SIZE / SCALE / ROTATE / RESET target the selected object.
+- Scene limit: 6 models.
+- Aggregate estimated scene GPU limit: 768 MiB.
+- Newest model remains the live skin/IK/animation target.
+- Older rigged models archive a frozen copy of their current joint palette.
 
-Decision: v1.0.0 is **not accepted**.
+Per-model guards remain: 192 MiB file, 3M vertices, 12M indices, 2M triangles, 4096px texture edge, 500 MiB mipmapped texture estimate, 640 MiB estimated GPU, 384 MiB CPU import estimate.
 
-## 2026-09-17 — v1.0.1 regression fix
+The known ~3.03M-triangle reference remains outside the 2M safety ceiling because it reproducibly caused severe sustained XR/system lag.
 
-Scaling correction:
-
-- removed raw metre-scale interaction,
-- added explicit largest-dimension presets: FIT / 32MM / 75MM / 150MM / 300MM,
-- manual SCALE returns to FIT.
-
-GL lifecycle diagnosis:
-
-The static text mesh wrappers could retain `built=true` and numeric VAO/VBO/IBO names across a scene/EGL restart even though the underlying GL resources were no longer valid. Later allocations could reuse those same numeric names. This explains missing labels and is a plausible cause of the white artifact when stale UI state referenced unrelated newly allocated geometry.
-
-Hardening implemented:
-
-- invalidate all static UI mesh wrappers on `Scene::Create`,
-- clear imported-model GL handles on `Scene::Create` while retaining only the safe file stamp,
-- release UI text GL resources on `Scene::Destroy`,
-- explicitly destroy imported-model GL resources on `Scene::Destroy`.
-
-Policy: never carry raw OpenGL object names across an EGL/scene lifecycle boundary.
-
-## 2026-09-18 — v1.0.1 final hardware acceptance
-
-Final Quest 3 acceptance passed.
-
-Confirmed on hardware:
-
-- UI labels remain visible after closing and restarting the app,
-- known-good small GLB import reaches READY without the previous white artifact,
-- SIZE cycles FIT / 32MM / 75MM / 150MM / 300MM at plausible physical sizes,
-- moving SCALE returns SIZE to FIT,
-- tablet and model grip remain stable,
-- cold restart remains safe and does not auto-load a prior GLB.
-
-Decision: **v1.0.1 is accepted as the final v1.0 release. Project status: COMPLETE.**
-
-Future feature work belongs to v1.1+ and should branch from the accepted v1.0.1 baseline rather than altering the final v1.0 acceptance record.
+**v1.5.0 is a candidate until CI and Quest hardware acceptance pass.**
