@@ -127,8 +127,8 @@ grep -n 'gQuestMrLastImportRigged ? 4' "$SRC"
 grep -n '"RIG"' "$SRC"
 grep -n 'peak-memory guard' "$SRC"
 grep -n 'returnToViewer' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
-grep -n 'QUESTMR_V039_VISIBLE_PICKER' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
-grep -n 'QUESTMR_V041_CLEAR_STALE_IMPORT' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
+grep -n 'QUESTMR_V161_CLEAR_STALE_IMPORT' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
+grep -n 'MAX_IMPORT_BYTES = 192L' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
 grep -n 'QUESTMR_V161_CUSTOM_GLB_BROWSER' scripts/parts/patch_v065.00.pyfrag
 grep -n 'ACTION_OPEN_DOCUMENT_TREE' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
 grep -n 'endsWith(".glb")' meta-openxr-sdk/Samples/XrSamples/XrPassthroughOcclusion/Projects/Android/questmr/java/com/bvultrex/quest3mrmodelviewer/QuestMrPickerActivity.java
